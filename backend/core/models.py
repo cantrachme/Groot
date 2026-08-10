@@ -7,6 +7,20 @@ class User(AbstractUser):
 
 
 class Organization(models.Model):
+    # Optional profile fields
+    legal_name = models.CharField(max_length=255, blank=True)
+    organization_type = models.CharField(max_length=100, blank=True)
+    description = models.TextField(blank=True)
+    website = models.URLField(max_length=200, blank=True)
+    contact_email = models.EmailField(max_length=254, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    # Timestamp fields
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     """Represents an organization."""
 
     name = models.CharField(max_length=255, unique=True)
