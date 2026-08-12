@@ -593,7 +593,7 @@ function CameraControls({ resetSignal }: { resetSignal: number }) {
       dampingFactor={0.065}
       rotateSpeed={0.48}
       zoomSpeed={0.72}
-      minDistance={2.65}
+      minDistance={0.28}
       maxDistance={9}
       target={[0, 0, 0]}
     />
@@ -615,7 +615,7 @@ export default function GrootOrb({
         camera={{
           position: [0, 0, 5],
           fov: 40,
-          near: 0.05,
+          near: 0.008,
           far: 80,
         }}
         dpr={[1, 1.8]}
