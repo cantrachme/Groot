@@ -1,69 +1,113 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import GrootOrb from "@/components/orb/GrootOrb";
 
 export default function Home() {
+  const [gesturesEnabled, setGesturesEnabled] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "g") {
+        setGesturesEnabled((enabled) => !enabled);
+      }
+
+      if (event.key.toLowerCase() === "r") {
+        setResetSignal((signal) => signal + 1);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="groot-interface">
+      <GrootOrb resetSignal={resetSignal} />
+
+      <div className="ambient-overlay" aria-hidden="true" />
+      <div className="scene-reticle" aria-hidden="true" />
+      <div className="hud-frame" aria-hidden="true" />
+
+      <header className="brand-lockup">
+        <div className="hud-kicker">
+          <span className="hud-kicker-line" />
+          GROOT / CORE 01
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <h1>GROOT</h1>
+        <p>OPERATIONAL INTELLIGENCE</p>
+      </header>
+
+      <section className="system-readout" aria-label="System status">
+        <div className="status-line" role="status">
+          <span className="status-pulse" aria-hidden="true" />
+          <span>SYSTEM ONLINE</span>
         </div>
-      </main>
-    </div>
+        <p>HOLOGRAPHIC CORE / LOCAL</p>
+        <span className="system-mode">IDLE — AWAITING INPUT</span>
+      </section>
+
+      <section className="interaction-guide" aria-label="Interaction controls">
+        <p className="hud-section-label">DIRECT MANIPULATION</p>
+        <ul>
+          <li>
+            <span className="hud-index">01</span>
+            <span>
+              <strong>DRAG</strong> ROTATE ORB
+            </span>
+          </li>
+          <li>
+            <span className="hud-index">02</span>
+            <span>
+              <strong>SCROLL / PINCH</strong> ZOOM
+            </span>
+          </li>
+          <li>
+            <span className="hud-index">03</span>
+            <span>
+              <strong>R</strong> RESET VIEW
+            </span>
+          </li>
+        </ul>
+      </section>
+
+      <section className="scene-actions" aria-label="View controls">
+        <span>VIEW / PERSPECTIVE</span>
+        <button
+          type="button"
+          className="hud-button reset-button"
+          onClick={() => setResetSignal((signal) => signal + 1)}
+        >
+          <span aria-hidden="true">↺</span>
+          RESET VIEW
+        </button>
+      </section>
+
+      <section className="gesture-panel" aria-label="Gesture input placeholder">
+        <div className="gesture-copy">
+          <span>MEDIAPIPE FOUNDATION</span>
+          <strong>
+            {gesturesEnabled ? "PLACEHOLDER ON" : "GESTURES STANDBY"}
+          </strong>
+          <small>CAMERA INACTIVE</small>
+        </div>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={gesturesEnabled}
+          aria-label="Toggle gesture integration placeholder"
+          className="gesture-toggle"
+          onClick={() => setGesturesEnabled((enabled) => !enabled)}
+        >
+          <span className="toggle-track" aria-hidden="true">
+            <span className="toggle-thumb" />
+          </span>
+          <span>{gesturesEnabled ? "ON" : "OFF"}</span>
+        </button>
+        <kbd>G</kbd>
+      </section>
+    </main>
   );
 }
