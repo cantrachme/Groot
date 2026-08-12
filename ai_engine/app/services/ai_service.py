@@ -1,6 +1,7 @@
 from ..core.context import AIRequestContext
+from ..orchestration.orchestrator import Orchestrator
 
 
 class AIService:
     def handle(self, context: AIRequestContext, message: str) -> str:
-        return "AI Engine received the request."
+        return Orchestrator().handle(context, message)

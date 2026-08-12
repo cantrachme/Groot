@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from ai_engine.app.core.context import AIRequestContext
 from ai_engine.app.services.ai_service import AIService
+from ai_engine.app.orchestration.orchestrator import Orchestrator
 
 
 class AIEngineTests(unittest.TestCase):
@@ -30,4 +31,35 @@ class AIEngineTests(unittest.TestCase):
 
         response = AIService().handle(context, "Hello GROOT")
 
-        self.assertEqual(response, "AI Engine received the request.")
+        self.assertEqual(
+            response,
+            "GROOT Orchestrator received the request.",
+            )
+
+    def test_orchestrator(self):
+        context = AIRequestContext(
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            request_id=uuid4(),
+        )
+
+        response = Orchestrator().handle(context, "Hello GROOT")
+
+        self.assertEqual(
+            response,
+            "GROOT Orchestrator received the request.",
+        )
+
+    def test_ai_service_uses_orchestrator(self):
+        context = AIRequestContext(
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            request_id=uuid4(),
+        )
+
+        response = AIService().handle(context, "Hello GROOT")
+
+        self.assertEqual(
+            response,
+            "GROOT Orchestrator received the request.",
+        )
