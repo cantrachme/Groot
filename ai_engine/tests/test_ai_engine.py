@@ -2,8 +2,17 @@ import unittest
 from uuid import uuid4
 
 from ai_engine.app.core.context import AIRequestContext
-from ai_engine.app.services.ai_service import AIService
 from ai_engine.app.orchestration.orchestrator import Orchestrator
+from ai_engine.app.services.ai_service import AIService
+
+
+class FakeLLMProvider:
+    def __init__(self):
+        self.calls = []
+
+    def generate(self, system_prompt: str, user_message: str) -> str:
+        self.calls.append((system_prompt, user_message))
+        return "FAKE LLM RESPONSE"
 
 
 class AIEngineTests(unittest.TestCase):
@@ -22,44 +31,42 @@ class AIEngineTests(unittest.TestCase):
         self.assertEqual(context.organization_id, organization_id)
         self.assertEqual(context.request_id, request_id)
 
-    def test_ai_service(self):
+    def test_orchestrator_uses_llm_provider(self):
+        provider = FakeLLMProvider()
+
         context = AIRequestContext(
             user_id=uuid4(),
             organization_id=uuid4(),
             request_id=uuid4(),
         )
 
-        response = AIService().handle(context, "Hello GROOT")
+        response = Orchestrator(provider).handle(
+            context,
+            "Hello GROOT",
+        )
 
-        self.assertEqual(
-            response,
-            "GROOT Orchestrator received the request.",
-            )
+        self.assertEqual(response, "FAKE LLM RESPONSE")
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(provider.calls[0][1], "Hello GROOT")
 
-    def test_orchestrator(self):
+    def test_ai_service_uses_llm_provider(self):
+        provider = FakeLLMProvider()
+
         context = AIRequestContext(
             user_id=uuid4(),
             organization_id=uuid4(),
             request_id=uuid4(),
         )
 
-        response = Orchestrator().handle(context, "Hello GROOT")
-
-        self.assertEqual(
-            response,
-            "GROOT Orchestrator received the request.",
+        response = AIService(provider).handle(
+            context,
+            "Hello GROOT",
         )
 
-    def test_ai_service_uses_orchestrator(self):
-        context = AIRequestContext(
-            user_id=uuid4(),
-            organization_id=uuid4(),
-            request_id=uuid4(),
-        )
+        self.assertEqual(response, "FAKE LLM RESPONSE")
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(provider.calls[0][1], "Hello GROOT")
 
-        response = AIService().handle(context, "Hello GROOT")
 
-        self.assertEqual(
-            response,
-            "GROOT Orchestrator received the request.",
-        )
+if __name__ == "__main__":
+    unittest.main()
