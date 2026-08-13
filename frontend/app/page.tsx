@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import GrootOrb from "@/components/orb/GrootOrb";
 import VoiceInput from "@/components/voice/VoiceInput";
+import HandGestureController from "@/components/gestures/HandGestureController";
+import type { GestureState } from "@/components/gestures/gesture-types";
 
 function speakGrootResponse(text: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
@@ -23,6 +25,19 @@ function speakGrootResponse(text: string) {
 
 export default function Home() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
+  const gestureStateRef = useRef<GestureState>({
+    enabled: false,
+    gesture: "none",
+    handX: 0.5,
+    handY: 0.5,
+    pinchDistance: 0,
+    pinchActive: false,
+    rotationX: 0,
+    rotationY: 0,
+    zoomDelta: 0,
+    rotationActive: false,
+    lastUpdate: 0,
+  });
   const [resetSignal, setResetSignal] = useState(0);
   const [voiceResponse, setVoiceResponse] = useState("");
   const [voiceProcessing, setVoiceProcessing] = useState(false);
@@ -44,7 +59,15 @@ export default function Home() {
 
   return (
     <main className="groot-interface">
-      <GrootOrb resetSignal={resetSignal} />
+      <GrootOrb
+        resetSignal={resetSignal}
+        gestureStateRef={gestureStateRef}
+      />
+
+      <HandGestureController
+        enabled={gesturesEnabled}
+        gestureStateRef={gestureStateRef}
+      />
 
       <div className="ambient-overlay" aria-hidden="true" />
       <div className="scene-reticle" aria-hidden="true" />
@@ -167,9 +190,16 @@ export default function Home() {
         <div className="gesture-copy">
           <span>MEDIAPIPE FOUNDATION</span>
           <strong>
-            {gesturesEnabled ? "PLACEHOLDER ON" : "GESTURES STANDBY"}
+            {gesturesEnabled
+              ? gestureStateRef.current.gesture.replace("_", " ").toUpperCase()
+              : "GESTURES STANDBY"}
           </strong>
-          <small>CAMERA INACTIVE</small>
+
+          <small>
+            {gesturesEnabled
+              ? "CAMERA ACTIVE"
+              : "CAMERA INACTIVE"}
+          </small>
         </div>
 
         <button

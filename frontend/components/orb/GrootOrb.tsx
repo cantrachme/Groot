@@ -1,7 +1,10 @@
 "use client";
 
+import type { MutableRefObject } from "react";
+import type { GestureState } from "@/components/gestures/gesture-types";
+
 import { OrbitControls } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import type { ComponentRef } from "react";
 import { useEffect, useMemo, useRef } from "react";
@@ -573,14 +576,86 @@ function Scene() {
   );
 }
 
-function CameraControls({ resetSignal }: { resetSignal: number }) {
+function CameraControls({
+  resetSignal,
+  gestureStateRef,
+}: {
+  resetSignal: number;
+  gestureStateRef?: MutableRefObject<GestureState>;
+}) {
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
+
+  const { camera } = useThree();
 
   useEffect(() => {
     if (resetSignal > 0) {
       controlsRef.current?.reset();
+
+      if (gestureStateRef?.current) {
+        gestureStateRef.current.rotationX = 0;
+        gestureStateRef.current.rotationY = 0;
+        gestureStateRef.current.rotationActive = false;
+        gestureStateRef.current.zoomDelta = 0;
+      }
     }
-  }, [resetSignal]);
+  }, [resetSignal, gestureStateRef]);
+
+  useFrame(() => {
+    const controls = controlsRef.current;
+    const gesture = gestureStateRef?.current;
+
+    if (!controls || !gesture || !gesture.enabled) {
+      return;
+    }
+
+    if (gesture.pinchActive && Math.abs(gesture.zoomDelta) > 0.0001) {
+      const target = controls.target;
+
+      const offset = camera.position.clone().sub(target);
+      const distance = offset.length();
+
+      const nextDistance = THREE.MathUtils.clamp(
+        distance - gesture.zoomDelta * 0.30,
+        0.28,
+        9,
+      );
+
+      offset.setLength(nextDistance);
+      camera.position.copy(target).add(offset);
+      camera.lookAt(target);
+
+      controls.update();
+      return;
+    }
+
+    if (!gesture.rotationActive) {
+      return;
+    }
+
+    const target = controls.target;
+
+    const offset = camera.position.clone().sub(target);
+
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+
+    spherical.theta -= gesture.rotationY * 0.35;
+    spherical.phi -= gesture.rotationX * 0.35;
+
+    const epsilon = 0.001;
+
+    spherical.phi = Math.max(
+      epsilon,
+      Math.min(Math.PI - epsilon, spherical.phi),
+    );
+
+    offset.setFromSpherical(spherical);
+
+    camera.position.copy(target).add(offset);
+    camera.lookAt(target);
+
+    controls.update();
+  });
+
 
   return (
     <OrbitControls
@@ -602,8 +677,10 @@ function CameraControls({ resetSignal }: { resetSignal: number }) {
 
 export default function GrootOrb({
   resetSignal = 0,
+  gestureStateRef,
 }: {
   resetSignal?: number;
+  gestureStateRef?: MutableRefObject<GestureState>;
 }) {
   return (
     <div
@@ -628,7 +705,10 @@ export default function GrootOrb({
         onCreated={({ gl }) => gl.setClearColor("#000000", 1)}
       >
         <Scene />
-        <CameraControls resetSignal={resetSignal} />
+        <CameraControls
+          resetSignal={resetSignal}
+          gestureStateRef={gestureStateRef}
+        />
       </Canvas>
     </div>
   );
