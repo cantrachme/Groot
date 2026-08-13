@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import GrootOrb from "@/components/orb/GrootOrb";
+import VoiceInput from "@/components/voice/VoiceInput";
 
 export default function Home() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
+  const [voiceResponse, setVoiceResponse] = useState("");
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -82,6 +86,60 @@ export default function Home() {
           <span aria-hidden="true">↺</span>
           RESET VIEW
         </button>
+      </section>
+
+      <section className="voice-panel" aria-label="Voice input">
+        <VoiceInput
+          onTranscript={async (transcript) => {
+            setVoiceProcessing(true);
+            setVoiceResponse("");
+
+            try {
+              const response = await fetch(
+                `${process.env.NEXT_PUBLIC_AI_ENGINE_URL}/ai`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    user_id: uuidv4(),
+                    organization_id: uuidv4(),
+                    request_id: uuidv4(),
+                    message: transcript,
+                  }),
+                },
+              );
+
+              if (!response.ok) {
+                throw new Error(
+                  `AI engine returned ${response.status}`,
+                );
+              }
+
+              const data = await response.json();
+
+              setVoiceResponse(data.text ?? "");
+            } catch (error) {
+              console.error("GROOT VOICE ERROR:", error);
+              setVoiceResponse("GROOT AI ENGINE UNAVAILABLE");
+            } finally {
+              setVoiceProcessing(false);
+            }
+          }}
+        />
+
+        {(voiceProcessing || voiceResponse) && (
+          <div className="voice-response">
+            <span>
+              {voiceProcessing
+                ? "PROCESSING..."
+                : "GROOT RESPONSE"}
+            </span>
+
+            {voiceResponse && <p>{voiceResponse}</p>}
+          </div>
+        )}
       </section>
 
       <section className="gesture-panel" aria-label="Gesture input placeholder">

@@ -1,5 +1,6 @@
 from ..core.context import AIRequestContext
 from ..llm.provider import LLMProvider
+from ..llm.response import LLMResponse
 from ..llm.providers.groq import GroqProvider
 from ..orchestration.orchestrator import Orchestrator
 from ..tools import tool_registry
@@ -17,5 +18,5 @@ class AIService:
             registry or tool_registry,
         )
 
-    def handle(self, context: AIRequestContext, message: str) -> str:
+    def handle(self, context: AIRequestContext, message: str) -> LLMResponse:
         return self.orchestrator.handle(context, message)
