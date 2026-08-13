@@ -5,6 +5,22 @@ import { v4 as uuidv4 } from "uuid";
 import GrootOrb from "@/components/orb/GrootOrb";
 import VoiceInput from "@/components/voice/VoiceInput";
 
+function speakGrootResponse(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "en-US";
+  utterance.rate = 0.95;
+  utterance.pitch = 0.9;
+  utterance.volume = 1;
+
+  window.speechSynthesis.speak(utterance);
+}
+
 export default function Home() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
@@ -118,8 +134,13 @@ export default function Home() {
               }
 
               const data = await response.json();
+              const responseText = data.text ?? "";
 
-              setVoiceResponse(data.text ?? "");
+              setVoiceResponse(responseText);
+
+              if (responseText.trim()) {
+                speakGrootResponse(responseText);
+              }
             } catch (error) {
               console.error("GROOT VOICE ERROR:", error);
               setVoiceResponse("GROOT AI ENGINE UNAVAILABLE");
