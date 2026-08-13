@@ -30,16 +30,21 @@ function classifyGesture(
 ) {
   const wrist = landmarks[0];
 
+  const thumbMcp = landmarks[2];
+  const thumbIp = landmarks[3];
   const thumbTip = landmarks[4];
-  const indexTip = landmarks[8];
-  const middleTip = landmarks[12];
-  const ringTip = landmarks[16];
-  const pinkyTip = landmarks[20];
 
   const indexMcp = landmarks[5];
+  const indexTip = landmarks[8];
+
   const middleMcp = landmarks[9];
+  const middleTip = landmarks[12];
+
   const ringMcp = landmarks[13];
+  const ringTip = landmarks[16];
+
   const pinkyMcp = landmarks[17];
+  const pinkyTip = landmarks[20];
 
   const pinchDistance = distance(thumbTip, indexTip);
 
@@ -72,6 +77,61 @@ function classifyGesture(
     ringExtended,
     pinkyExtended,
   ].filter(Boolean).length;
+
+  const otherFingersCurled =
+    !middleExtended &&
+    !ringExtended &&
+    !pinkyExtended;
+
+  const thumbUp =
+    otherFingersCurled &&
+    !indexExtended &&
+    thumbTip.y < thumbMcp.y - 0.04 &&
+    thumbTip.y < thumbIp.y - 0.015;
+
+  if (thumbUp) {
+    return {
+      gesture: "thumbs_up" as const,
+      pinchDistance,
+    };
+  }
+
+  const thumbDown =
+    otherFingersCurled &&
+    !indexExtended &&
+    thumbTip.y > thumbMcp.y + 0.04 &&
+    thumbTip.y > thumbIp.y + 0.015;
+
+  if (thumbDown) {
+    return {
+      gesture: "thumbs_down" as const,
+      pinchDistance,
+    };
+  }
+
+  if (
+    indexExtended &&
+    middleExtended &&
+    !ringExtended &&
+    !pinkyExtended
+  ) {
+    return {
+      gesture: "two_fingers" as const,
+      pinchDistance,
+    };
+  }
+
+  if (
+    indexExtended &&
+    !middleExtended &&
+    !ringExtended &&
+    !pinkyExtended
+  ) {
+    return {
+      gesture: "point" as const,
+      pinchDistance,
+    };
+  }
 
   if (extendedCount >= 3) {
     return {
@@ -220,17 +280,39 @@ export default function HandGestureController({
               let rotationX = 0;
               let rotationY = 0;
 
+              let swipeGesture:
+                | "swipe_left"
+                | "swipe_right"
+                | null = null;
+
               if (previousHand) {
-                rotationY =
-                  (currentHand.x - previousHand.x) * 7;
-                rotationX =
-                  (currentHand.y - previousHand.y) * 7;
+                const deltaX =
+                  currentHand.x - previousHand.x;
+
+                const deltaY =
+                  currentHand.y - previousHand.y;
+
+                rotationY = deltaX * 7;
+                rotationX = deltaY * 7;
+
+                if (
+                  Math.abs(deltaX) > 0.075 &&
+                  Math.abs(deltaX) > Math.abs(deltaY) * 1.5
+                ) {
+                  swipeGesture =
+                    deltaX > 0
+                      ? "swipe_right"
+                      : "swipe_left";
+                }
               }
 
               previousHandRef.current = currentHand;
 
               const classification =
                 classifyGesture(landmarks);
+
+              const detectedGesture =
+                swipeGesture ?? classification.gesture;
 
               const previousPinch =
                 previousPinchRef.current;
@@ -269,7 +351,7 @@ export default function HandGestureController({
                 classification.pinchDistance;
 
               gestureStateRef.current.gesture =
-                classification.gesture;
+                detectedGesture;
 
               gestureStateRef.current.handX =
                 currentHand.x;

@@ -25,6 +25,9 @@ function speakGrootResponse(text: string) {
 
 export default function Home() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
+  const [gestureAction, setGestureAction] = useState("IDLE");
+  const previousGestureRef = useRef<GestureState["gesture"]>("none");
+
   const gestureStateRef = useRef<GestureState>({
     enabled: false,
     gesture: "none",
@@ -56,6 +59,67 @@ export default function Home() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!gesturesEnabled) {
+      previousGestureRef.current = "none";
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      const gesture = gestureStateRef.current.gesture;
+      const previous = previousGestureRef.current;
+
+      if (gesture === previous) {
+        return;
+      }
+
+      previousGestureRef.current = gesture;
+
+      switch (gesture) {
+        case "point":
+          setGestureAction("FOCUS / SELECT");
+          break;
+
+        case "fist":
+          setGestureAction("FREEZE / PAUSE");
+          break;
+
+        case "open_palm":
+          setGestureAction("WAKE / ACTIVATE");
+          break;
+
+        case "thumbs_up":
+          setGestureAction("CONFIRM / EXECUTE");
+          break;
+
+        case "thumbs_down":
+          setGestureAction("CANCEL / REJECT");
+          break;
+
+        case "two_fingers":
+          setGestureAction("SWITCH MODE");
+          break;
+
+        case "swipe_left":
+          setGestureAction("CYCLE PREVIOUS");
+          break;
+
+        case "swipe_right":
+          setGestureAction("CYCLE NEXT");
+          break;
+
+        case "none":
+          setGestureAction("IDLE");
+          break;
+
+        case "pinch":
+          break;
+      }
+    }, 50);
+
+    return () => window.clearInterval(interval);
+  }, [gesturesEnabled, gestureStateRef]);
 
   return (
     <main className="groot-interface">
@@ -189,15 +253,18 @@ export default function Home() {
       <section className="gesture-panel" aria-label="Gesture input placeholder">
         <div className="gesture-copy">
           <span>MEDIAPIPE FOUNDATION</span>
+
           <strong>
             {gesturesEnabled
-              ? gestureStateRef.current.gesture.replace("_", " ").toUpperCase()
+              ? gestureStateRef.current.gesture
+                  .replace("_", " ")
+                  .toUpperCase()
               : "GESTURES STANDBY"}
           </strong>
 
           <small>
             {gesturesEnabled
-              ? "CAMERA ACTIVE"
+              ? gestureAction
               : "CAMERA INACTIVE"}
           </small>
         </div>
