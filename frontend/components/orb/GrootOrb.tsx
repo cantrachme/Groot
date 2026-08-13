@@ -678,9 +678,11 @@ function CameraControls({
 export default function GrootOrb({
   resetSignal = 0,
   gestureStateRef,
+  frozen = false,
 }: {
   resetSignal?: number;
   gestureStateRef?: MutableRefObject<GestureState>;
+  frozen?: boolean;
 }) {
   return (
     <div
@@ -689,6 +691,7 @@ export default function GrootOrb({
     >
       <Canvas
         className="groot-canvas"
+        frameloop={frozen ? "never" : "always"}
         camera={{
           position: [0, 0, 5],
           fov: 40,

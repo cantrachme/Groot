@@ -26,6 +26,7 @@ function speakGrootResponse(text: string) {
 export default function Home() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gestureAction, setGestureAction] = useState("IDLE");
+  const [orbFrozen, setOrbFrozen] = useState(false);
   const previousGestureRef = useRef<GestureState["gesture"]>("none");
 
   const gestureStateRef = useRef<GestureState>({
@@ -63,6 +64,7 @@ export default function Home() {
   useEffect(() => {
     if (!gesturesEnabled) {
       previousGestureRef.current = "none";
+      setOrbFrozen(false);
       return;
     }
 
@@ -83,10 +85,12 @@ export default function Home() {
 
         case "fist":
           setGestureAction("FREEZE / PAUSE");
+          setOrbFrozen(true);
           break;
 
         case "open_palm":
           setGestureAction("WAKE / ACTIVATE");
+          setOrbFrozen(false);
           break;
 
         case "thumbs_up":
@@ -126,6 +130,7 @@ export default function Home() {
       <GrootOrb
         resetSignal={resetSignal}
         gestureStateRef={gestureStateRef}
+        frozen={orbFrozen}
       />
 
       <HandGestureController
