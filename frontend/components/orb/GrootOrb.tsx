@@ -402,15 +402,27 @@ function OrbitalSystem() {
   );
 }
 
-function EnergyCore() {
+function EnergyCore({ speaking }: { speaking: boolean }) {
   const pulseRef = useRef<THREE.Group>(null);
   const latticeRef = useRef<THREE.Mesh>(null);
 
   useFrame((state, delta) => {
     const time = state.clock.elapsedTime;
-    const pulse = 1 + Math.sin(time * 2.6) * 0.055;
 
-    pulseRef.current?.scale.setScalar(pulse);
+    const idlePulse =
+      1 + Math.sin(time * 2.6) * 0.055;
+
+    const speechPulse = speaking
+      ? 1 + Math.sin(time * 8.5) * 0.18
+      : idlePulse;
+
+    pulseRef.current?.scale.setScalar(
+      THREE.MathUtils.lerp(
+        pulseRef.current.scale.x,
+        speechPulse,
+        speaking ? 0.18 : 0.08,
+      ),
+    );
 
     if (latticeRef.current) {
       latticeRef.current.rotation.x += delta * 0.09;
@@ -517,7 +529,7 @@ function ScanningBand() {
   );
 }
 
-function GrootCore() {
+function GrootCore({ speaking }: { speaking: boolean }) {
   const coreRef = useRef<THREE.Group>(null);
 
   useFrame((state, delta) => {
@@ -542,17 +554,17 @@ function GrootCore() {
       <DataFilaments />
       <LatitudeBands />
       <OrbitalSystem />
-      <EnergyCore />
+      <EnergyCore speaking={speaking} />
       <ScanningBand />
     </group>
   );
 }
 
-function Scene() {
+function Scene({ speaking }: { speaking: boolean }) {
   return (
     <>
       <color attach="background" args={["#000000"]} />
-      <GrootCore />
+      <GrootCore speaking={speaking} />
 
       <ParticleField
         count={1350}
@@ -679,10 +691,12 @@ export default function GrootOrb({
   resetSignal = 0,
   gestureStateRef,
   frozen = false,
+  speaking = false,
 }: {
   resetSignal?: number;
   gestureStateRef?: MutableRefObject<GestureState>;
   frozen?: boolean;
+  speaking?: boolean;
 }) {
   return (
     <div
@@ -707,7 +721,7 @@ export default function GrootOrb({
         performance={{ min: 0.55 }}
         onCreated={({ gl }) => gl.setClearColor("#000000", 1)}
       >
-        <Scene />
+        <Scene speaking={speaking} />
         <CameraControls
           resetSignal={resetSignal}
           gestureStateRef={gestureStateRef}

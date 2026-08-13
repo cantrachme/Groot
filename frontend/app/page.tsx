@@ -7,8 +7,13 @@ import VoiceInput from "@/components/voice/VoiceInput";
 import HandGestureController from "@/components/gestures/HandGestureController";
 import type { GestureState } from "@/components/gestures/gesture-types";
 
-function speakGrootResponse(text: string) {
+function speakGrootResponse(
+  text: string,
+  onStart?: () => void,
+  onEnd?: () => void,
+) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    onEnd?.();
     return;
   }
 
@@ -19,6 +24,18 @@ function speakGrootResponse(text: string) {
   utterance.rate = 0.95;
   utterance.pitch = 0.9;
   utterance.volume = 1;
+
+  utterance.onstart = () => {
+    onStart?.();
+  };
+
+  utterance.onend = () => {
+    onEnd?.();
+  };
+
+  utterance.onerror = () => {
+    onEnd?.();
+  };
 
   window.speechSynthesis.speak(utterance);
 }
@@ -45,6 +62,7 @@ export default function Home() {
   const [resetSignal, setResetSignal] = useState(0);
   const [voiceResponse, setVoiceResponse] = useState("");
   const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [grootSpeaking, setGrootSpeaking] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -131,6 +149,7 @@ export default function Home() {
         resetSignal={resetSignal}
         gestureStateRef={gestureStateRef}
         frozen={orbFrozen}
+        speaking={grootSpeaking}
       />
 
       <HandGestureController
@@ -231,7 +250,11 @@ export default function Home() {
               setVoiceResponse(responseText);
 
               if (responseText.trim()) {
-                speakGrootResponse(responseText);
+                speakGrootResponse(
+                  responseText,
+                  () => setGrootSpeaking(true),
+                  () => setGrootSpeaking(false),
+                );
               }
             } catch (error) {
               console.error("GROOT VOICE ERROR:", error);
