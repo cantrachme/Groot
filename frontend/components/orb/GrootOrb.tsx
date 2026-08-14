@@ -591,9 +591,11 @@ function Scene({ speaking }: { speaking: boolean }) {
 function CameraControls({
   resetSignal,
   gestureStateRef,
+  responseMode = false,
 }: {
   resetSignal: number;
   gestureStateRef?: MutableRefObject<GestureState>;
+  responseMode?: boolean;
 }) {
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
 
@@ -616,7 +618,37 @@ function CameraControls({
     const controls = controlsRef.current;
     const gesture = gestureStateRef?.current;
 
-    if (!controls || !gesture || !gesture.enabled) {
+    if (!controls) {
+      return;
+    }
+
+    if (responseMode) {
+      const desiredCamera = new THREE.Vector3(
+        -1.55,
+        0.85,
+        7.2,
+      );
+
+      const desiredTarget = new THREE.Vector3(
+        -1.55,
+        0.85,
+        0,
+      );
+
+      camera.position.lerp(
+        desiredCamera,
+        0.035,
+      );
+
+      controls.target.lerp(
+        desiredTarget,
+        0.035,
+      );
+
+      camera.lookAt(controls.target);
+    }
+
+    if (!gesture || !gesture.enabled) {
       return;
     }
 
@@ -692,11 +724,15 @@ export default function GrootOrb({
   gestureStateRef,
   frozen = false,
   speaking = false,
+  responseMode = false,
+  onOrbClick,
 }: {
   resetSignal?: number;
   gestureStateRef?: MutableRefObject<GestureState>;
   frozen?: boolean;
   speaking?: boolean;
+  responseMode?: boolean;
+  onOrbClick?: () => void;
 }) {
   return (
     <div
@@ -721,10 +757,22 @@ export default function GrootOrb({
         performance={{ min: 0.55 }}
         onCreated={({ gl }) => gl.setClearColor("#000000", 1)}
       >
-        <Scene speaking={speaking} />
+        <group
+          position={responseMode ? [-1.55, 0.85, 0] : [0, 0, 0]}
+          scale={responseMode ? 0.58 : 1}
+          onClick={(event) => {
+            if (responseMode) {
+              event.stopPropagation();
+              onOrbClick?.();
+            }
+          }}
+        >
+          <Scene speaking={speaking} />
+        </group>
         <CameraControls
           resetSignal={resetSignal}
           gestureStateRef={gestureStateRef}
+          responseMode={responseMode}
         />
       </Canvas>
     </div>

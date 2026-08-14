@@ -20,10 +20,19 @@ function speakGrootResponse(
   window.speechSynthesis.cancel();
 
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "en-US";
-  utterance.rate = 0.95;
-  utterance.pitch = 0.9;
+  utterance.lang = "en-GB";
+  utterance.rate = 0.88;
+  utterance.pitch = 0.72;
   utterance.volume = 1;
+
+  const voices = window.speechSynthesis.getVoices();
+  const britishVoice = voices.find(
+    (voice) => voice.name === "Daniel" && voice.lang.startsWith("en-GB"),
+  );
+
+  if (britishVoice) {
+    utterance.voice = britishVoice;
+  }
 
   utterance.onstart = () => {
     onStart?.();
@@ -62,6 +71,7 @@ export default function Home() {
   const [resetSignal, setResetSignal] = useState(0);
   const [voiceResponse, setVoiceResponse] = useState("");
   const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [responseMode, setResponseMode] = useState(false);
   const [grootSpeaking, setGrootSpeaking] = useState(false);
 
   useEffect(() => {
@@ -150,6 +160,13 @@ export default function Home() {
         gestureStateRef={gestureStateRef}
         frozen={orbFrozen}
         speaking={grootSpeaking}
+        responseMode={responseMode}
+        onOrbClick={() => {
+          setResponseMode(false);
+          setVoiceResponse("");
+          setVoiceProcessing(false);
+          setGrootSpeaking(false);
+        }}
       />
 
       <HandGestureController
@@ -215,7 +232,7 @@ export default function Home() {
         </button>
       </section>
 
-      <section className="voice-panel" aria-label="Voice input">
+      <section className={`voice-panel ${responseMode ? "voice-panel-response" : ""}`} aria-label="Voice input">
         <VoiceInput
           onTranscript={async (transcript) => {
             setVoiceProcessing(true);
@@ -248,6 +265,7 @@ export default function Home() {
               const responseText = data.text ?? "";
 
               setVoiceResponse(responseText);
+              setResponseMode(true);
 
               if (responseText.trim()) {
                 speakGrootResponse(
@@ -259,6 +277,7 @@ export default function Home() {
             } catch (error) {
               console.error("GROOT VOICE ERROR:", error);
               setVoiceResponse("GROOT AI ENGINE UNAVAILABLE");
+              setResponseMode(true);
             } finally {
               setVoiceProcessing(false);
             }
@@ -273,7 +292,11 @@ export default function Home() {
                 : "GROOT RESPONSE"}
             </span>
 
-            {voiceResponse && <p>{voiceResponse}</p>}
+            {voiceResponse && (
+              <p key={voiceResponse} className="voice-response-text">
+                {voiceResponse}
+              </p>
+            )}
           </div>
         )}
       </section>
