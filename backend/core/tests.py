@@ -220,3 +220,50 @@ class IntegrationRegistryTests(TestCase):
 
         with self.assertRaises(KeyError):
             registry.get("unknown")
+
+
+class CredentialProviderTests(TestCase):
+    def test_environment_provider_returns_credential(self):
+        import os
+
+        from .integrations import EnvironmentCredentialProvider
+
+        os.environ["GROOT_TEST_TOKEN"] = "test-secret"
+
+        try:
+            provider = EnvironmentCredentialProvider()
+
+            self.assertTrue(provider.has("GROOT_TEST_TOKEN"))
+            self.assertEqual(
+                provider.get("GROOT_TEST_TOKEN"),
+                "test-secret",
+            )
+        finally:
+            os.environ.pop("GROOT_TEST_TOKEN", None)
+
+    def test_environment_provider_returns_none_for_missing_credential(self):
+        import os
+
+        from .integrations import EnvironmentCredentialProvider
+
+        os.environ.pop("GROOT_MISSING_TOKEN", None)
+
+        provider = EnvironmentCredentialProvider()
+
+        self.assertFalse(provider.has("GROOT_MISSING_TOKEN"))
+        self.assertIsNone(provider.get("GROOT_MISSING_TOKEN"))
+
+    def test_environment_provider_ignores_empty_credentials(self):
+        import os
+
+        from .integrations import EnvironmentCredentialProvider
+
+        os.environ["GROOT_EMPTY_TOKEN"] = "   "
+
+        try:
+            provider = EnvironmentCredentialProvider()
+
+            self.assertFalse(provider.has("GROOT_EMPTY_TOKEN"))
+            self.assertIsNone(provider.get("GROOT_EMPTY_TOKEN"))
+        finally:
+            os.environ.pop("GROOT_EMPTY_TOKEN", None)
