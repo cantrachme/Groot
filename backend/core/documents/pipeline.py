@@ -26,6 +26,14 @@ class DocumentIntelligencePipeline:
         document: Document,
         content: bytes,
     ) -> DocumentContent:
+        document.status = Document.Status.PROCESSING
+        document.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ],
+        )
+
         document_content = self.processing_service.process(
             document,
             content,
@@ -39,6 +47,15 @@ class DocumentIntelligencePipeline:
                 document,
                 [],
             )
+
+            document.status = Document.Status.FAILED
+            document.save(
+                update_fields=[
+                    "status",
+                    "updated_at",
+                ],
+            )
+
             return document_content
 
         normalized_text = self.normalizer.normalize(
@@ -60,6 +77,14 @@ class DocumentIntelligencePipeline:
         self.chunk_persistence.persist(
             document,
             chunks,
+        )
+
+        document.status = Document.Status.READY
+        document.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ],
         )
 
         return document_content

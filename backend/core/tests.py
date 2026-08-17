@@ -1801,6 +1801,11 @@ class DocumentIntelligencePipelineTests(TestCase):
             content.extractor,
             "plain_text",
         )
+        self.document.refresh_from_db()
+        self.assertEqual(
+            self.document.status,
+            Document.Status.READY,
+        )
 
         chunks = list(
             DocumentChunk.objects.filter(
@@ -1838,6 +1843,11 @@ class DocumentIntelligencePipelineTests(TestCase):
         self.assertEqual(
             content.status,
             DocumentContent.Status.FAILED,
+        )
+        self.document.refresh_from_db()
+        self.assertEqual(
+            self.document.status,
+            Document.Status.FAILED,
         )
         self.assertFalse(
             DocumentChunk.objects.filter(
@@ -1961,3 +1971,79 @@ class DocumentProcessingTaskTests(TestCase):
             0,
         )
         self.assertIsNotNone(result["error"])
+
+
+class DocumentLifecycleTransitionTests(TestCase):
+    def setUp(self):
+        from .documents import (
+            DocumentChunkPersistenceService,
+            DocumentIntelligencePipeline,
+            DocumentTextChunker,
+            DocumentTextNormalizer,
+        )
+
+        self.organization = Organization.objects.create(
+            name="Lifecycle Organization",
+        )
+        self.user = User.objects.create_user(
+            username="lifecycle-user",
+            password="testpassword",
+        )
+        self.document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="lifecycle.txt",
+            document_type="text",
+            storage_key="documents/lifecycle.txt",
+            mime_type="text/plain",
+            size=20,
+        )
+
+        self.observed_status = None
+
+        class ProcessingService:
+            def __init__(self, outer):
+                self.outer = outer
+
+            def process(self, document, content):
+                from core.models import DocumentContent
+
+                self.outer.observed_status = (
+                    Document.objects.get(
+                        pk=document.pk,
+                    ).status
+                )
+
+                return DocumentContent.objects.create(
+                    document=document,
+                    text="Lifecycle test content.",
+                    extractor="test",
+                    status=DocumentContent.Status.READY,
+                )
+
+        self.pipeline = DocumentIntelligencePipeline(
+            processing_service=ProcessingService(self),
+            normalizer=DocumentTextNormalizer(),
+            chunker=DocumentTextChunker(
+                chunk_size=100,
+            ),
+            chunk_persistence=DocumentChunkPersistenceService(),
+        )
+
+    def test_pipeline_sets_processing_before_extraction(self):
+        self.pipeline.process(
+            self.document,
+            b"lifecycle content",
+        )
+
+        self.assertEqual(
+            self.observed_status,
+            Document.Status.PROCESSING,
+        )
+
+        self.document.refresh_from_db()
+
+        self.assertEqual(
+            self.document.status,
+            Document.Status.READY,
+        )
