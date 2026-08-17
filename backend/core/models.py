@@ -393,3 +393,73 @@ class Document(models.Model):
 
     def __str__(self):
         return f"{self.organization.name} / {self.name}"
+
+
+class Integration(models.Model):
+    """Represents an external system integration for an organization."""
+
+    class Provider(models.TextChoices):
+        GITHUB = "github", "GitHub"
+        JIRA = "jira", "Jira"
+        SLACK = "slack", "Slack"
+        CRM = "crm", "CRM"
+        GOOGLE_DRIVE = "google_drive", "Google Drive"
+        AWS = "aws", "AWS"
+        OTHER = "other", "Other"
+
+    class Status(models.TextChoices):
+        DISCONNECTED = "disconnected", "Disconnected"
+        CONNECTING = "connecting", "Connecting"
+        ACTIVE = "active", "Active"
+        ERROR = "error", "Error"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="integrations",
+    )
+    provider = models.CharField(
+        max_length=50,
+        choices=Provider.choices,
+    )
+    name = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DISCONNECTED,
+    )
+    external_account_id = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+    last_synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "provider", "name"],
+                name="unique_integration_org_provider_name",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "provider"],
+                name="integration_org_provider_idx",
+            ),
+            models.Index(
+                fields=["organization", "status"],
+                name="integration_org_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.name}"
