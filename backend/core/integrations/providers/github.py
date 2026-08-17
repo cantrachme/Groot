@@ -92,4 +92,31 @@ class GitHubConnector(IntegrationConnector):
         self,
         data: list[dict[str, Any]],
     ) -> list[NormalizedEvent]:
-        return []
+        events: list[NormalizedEvent] = []
+
+        for item in data:
+            name = item.get("full_name") or item.get("name")
+
+            if not name:
+                continue
+
+            events.append(
+                NormalizedEvent(
+                    event_type="github_repository",
+                    title=name,
+                    description=item.get("description") or "",
+                    source="github",
+                    metadata={
+                        "repository_id": item.get("id"),
+                        "repository_name": item.get("name"),
+                        "owner": (
+                            item.get("owner") or {}
+                        ).get("login"),
+                        "html_url": item.get("html_url"),
+                        "private": item.get("private"),
+                        "default_branch": item.get("default_branch"),
+                    },
+                )
+            )
+
+        return events

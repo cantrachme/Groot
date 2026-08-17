@@ -339,3 +339,154 @@ class GitHubConnectorTests(TestCase):
         result = GitHubConnector("test-token").disconnect()
 
         self.assertTrue(result.success)
+
+
+class GitHubNormalizationTests(TestCase):
+    def test_repository_is_normalized_to_event(self):
+        from .integrations.providers.github import GitHubConnector
+
+        connector = GitHubConnector("test-token")
+
+        events = connector.normalize(
+            [
+                {
+                    "id": 123,
+                    "name": "groot",
+                    "full_name": "cantrachme/Groot",
+                    "description": "Operational intelligence platform",
+                    "html_url": "https://github.com/cantrachme/Groot",
+                    "private": True,
+                    "default_branch": "main",
+                    "owner": {"login": "cantrachme"},
+                }
+            ]
+        )
+
+        self.assertEqual(len(events), 1)
+
+        event = events[0]
+
+        self.assertEqual(event.event_type, "github_repository")
+        self.assertEqual(event.title, "cantrachme/Groot")
+        self.assertEqual(event.source, "github")
+        self.assertEqual(
+            event.metadata["repository_id"],
+            123,
+        )
+        self.assertEqual(
+            event.metadata["owner"],
+            "cantrachme",
+        )
+
+    def test_invalid_github_item_is_skipped(self):
+        from .integrations.providers.github import GitHubConnector
+
+        connector = GitHubConnector("test-token")
+
+        events = connector.normalize(
+            [
+                {"id": 123},
+                {"name": "valid-repo"},
+            ]
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].title, "valid-repo")
+
+
+class IntegrationServiceTests(TestCase):
+    class FakeConnector:
+        provider = "fake"
+
+        def test_connection(self):
+            from .integrations import ConnectorResult
+
+            return ConnectorResult(
+                success=True,
+                data=[{"connected": True}],
+            )
+
+        def fetch(self, **kwargs):
+            from .integrations import ConnectorResult
+
+            return ConnectorResult(
+                success=True,
+                data=[{"name": "example"}],
+            )
+
+        def normalize(self, data):
+            from .integrations import NormalizedEvent
+
+            return [
+                NormalizedEvent(
+                    event_type="fake_event",
+                    title=item["name"],
+                    source="fake",
+                )
+                for item in data
+            ]
+
+    class FakeCredentials:
+        def __init__(self, token="fake-token"):
+            self.token = token
+
+        def get(self, key):
+            if key == "FAKE_TOKEN":
+                return self.token
+            return None
+
+    def setUp(self):
+        from .integrations import IntegrationRegistry, IntegrationService
+
+        self.registry = IntegrationRegistry()
+        self.connector = self.FakeConnector()
+        self.registry.register(self.connector)
+
+        self.service = IntegrationService(
+            registry=self.registry,
+            credentials=self.FakeCredentials(),
+        )
+
+    def test_get_connector(self):
+        connector = self.service.get_connector("fake")
+
+        self.assertIs(connector, self.connector)
+
+    def test_test_connection_uses_registered_connector(self):
+        result = self.service.test_connection(
+            "fake",
+            "FAKE_TOKEN",
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.data,
+            [{"connected": True}],
+        )
+
+    def test_missing_credential_prevents_connection(self):
+        from .integrations import IntegrationService
+
+        service = IntegrationService(
+            registry=self.registry,
+            credentials=self.FakeCredentials(token=""),
+        )
+
+        result = service.test_connection(
+            "fake",
+            "FAKE_TOKEN",
+        )
+
+        self.assertFalse(result.success)
+        self.assertIn("Credential not configured", result.error)
+
+    def test_fetch_and_normalize(self):
+        result, events = self.service.fetch_and_normalize(
+            "fake",
+            "FAKE_TOKEN",
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_type, "fake_event")
+        self.assertEqual(events[0].title, "example")
