@@ -65,6 +65,7 @@ export default function Home() {
     rotationX: 0,
     rotationY: 0,
     zoomDelta: 0,
+    handDepth: 0,
     rotationActive: false,
     lastUpdate: 0,
   });

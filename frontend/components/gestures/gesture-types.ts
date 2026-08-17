@@ -20,6 +20,7 @@ export interface GestureState {
   rotationX: number;
   rotationY: number;
   zoomDelta: number;
+  handDepth: number;
   rotationActive: boolean;
   lastUpdate: number;
 }

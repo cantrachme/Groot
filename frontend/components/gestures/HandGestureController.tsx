@@ -187,6 +187,7 @@ export default function HandGestureController({
       gestureStateRef.current.rotationY = 0;
       gestureStateRef.current.rotationActive = false;
       gestureStateRef.current.zoomDelta = 0;
+      gestureStateRef.current.handDepth = 0;
 
       return;
     }
@@ -333,19 +334,14 @@ export default function HandGestureController({
                   distance(wrist, pinkyMcp)
                 ) / 4;
 
-              if (classification.gesture === "pinch") {
-                if (previousDepthRef.current !== null) {
-                  zoomDelta =
-                    (palmDepth -
-                      previousDepthRef.current) *
-                    14;
-                }
-
-                previousDepthRef.current =
-                  palmDepth;
-              } else {
-                previousDepthRef.current = null;
+              if (previousDepthRef.current !== null) {
+                zoomDelta =
+                  (palmDepth -
+                    previousDepthRef.current) *
+                  18;
               }
+
+              previousDepthRef.current = palmDepth;
 
               previousPinchRef.current =
                 classification.pinchDistance;
@@ -376,9 +372,12 @@ export default function HandGestureController({
                 Math.abs(rotationY) > 0.002;
 
               gestureStateRef.current.zoomDelta =
-                classification.gesture === "pinch"
-                  ? zoomDelta
-                  : 0;
+                classification.gesture === "fist"
+                  ? 0
+                  : zoomDelta;
+
+              gestureStateRef.current.handDepth =
+                palmDepth;
 
               gestureStateRef.current.lastUpdate =
                 now;
@@ -393,6 +392,7 @@ export default function HandGestureController({
               gestureStateRef.current.rotationY = 0;
               gestureStateRef.current.rotationActive = false;
               gestureStateRef.current.zoomDelta = 0;
+              gestureStateRef.current.handDepth = 0;
             }
           }
 

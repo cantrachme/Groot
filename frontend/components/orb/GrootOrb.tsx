@@ -598,18 +598,21 @@ function CameraControls({
   responseMode?: boolean;
 }) {
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const previousTargetRef = useRef(new THREE.Vector3(0, 0, 0));
 
   const { camera } = useThree();
 
   useEffect(() => {
     if (resetSignal > 0) {
       controlsRef.current?.reset();
+      previousTargetRef.current.set(0, 0, 0);
 
       if (gestureStateRef?.current) {
         gestureStateRef.current.rotationX = 0;
         gestureStateRef.current.rotationY = 0;
         gestureStateRef.current.rotationActive = false;
         gestureStateRef.current.zoomDelta = 0;
+        gestureStateRef.current.handDepth = 0;
       }
     }
   }, [resetSignal, gestureStateRef]);
@@ -646,20 +649,35 @@ function CameraControls({
       );
 
       camera.lookAt(controls.target);
+    } else {
+      const target = controls.target;
+      const previousTarget = previousTargetRef.current;
+
+      const panDelta = target.clone().sub(previousTarget);
+
+      if (panDelta.lengthSq() > 0.000001) {
+        camera.position.add(panDelta);
+        target.set(0, 0, 0);
+      }
+
+      previousTarget.copy(target);
     }
 
     if (!gesture || !gesture.enabled) {
       return;
     }
 
-    if (gesture.pinchActive && Math.abs(gesture.zoomDelta) > 0.0001) {
+    if (
+      gesture.gesture !== "fist" &&
+      Math.abs(gesture.zoomDelta) > 0.0001
+    ) {
       const target = controls.target;
 
       const offset = camera.position.clone().sub(target);
       const distance = offset.length();
 
       const nextDistance = THREE.MathUtils.clamp(
-        distance - gesture.zoomDelta * 0.30,
+        distance - gesture.zoomDelta * 0.55,
         0.28,
         9,
       );
@@ -669,6 +687,13 @@ function CameraControls({
       camera.lookAt(target);
 
       controls.update();
+    }
+
+    if (gesture.gesture === "fist") {
+      gesture.rotationX = 0;
+      gesture.rotationY = 0;
+      gesture.rotationActive = false;
+      gesture.zoomDelta = 0;
       return;
     }
 
@@ -705,9 +730,11 @@ function CameraControls({
     <OrbitControls
       ref={controlsRef}
       makeDefault
-      enablePan={false}
+      enablePan
       enableRotate
       enableZoom
+      screenSpacePanning
+      panSpeed={1.2}
       enableDamping
       dampingFactor={0.065}
       rotateSpeed={0.48}
