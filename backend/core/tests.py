@@ -267,3 +267,75 @@ class CredentialProviderTests(TestCase):
             self.assertIsNone(provider.get("GROOT_EMPTY_TOKEN"))
         finally:
             os.environ.pop("GROOT_EMPTY_TOKEN", None)
+
+
+class GitHubConnectorTests(TestCase):
+    def test_empty_token_is_rejected(self):
+        from .integrations.providers.github import GitHubConnector
+
+        with self.assertRaises(ValueError):
+            GitHubConnector("   ")
+
+    def test_headers_use_bearer_authentication(self):
+        from .integrations.providers.github import GitHubConnector
+
+        connector = GitHubConnector("test-token")
+
+        self.assertEqual(
+            connector._headers()["Authorization"],
+            "Bearer test-token",
+        )
+        self.assertEqual(
+            connector._headers()["Accept"],
+            "application/vnd.github+json",
+        )
+
+    def test_test_connection_success(self):
+        from unittest.mock import Mock, patch
+
+        from .integrations.providers.github import GitHubConnector
+
+        response = Mock()
+        response.ok = True
+        response.json.return_value = {
+            "login": "test-user",
+        }
+
+        connector = GitHubConnector("test-token")
+
+        with patch(
+            "core.integrations.providers.github.requests.get",
+            return_value=response,
+        ) as mock_get:
+            result = connector.test_connection()
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.data[0]["login"], "test-user")
+        mock_get.assert_called_once()
+
+    def test_test_connection_failure(self):
+        from unittest.mock import Mock, patch
+
+        from .integrations.providers.github import GitHubConnector
+
+        response = Mock()
+        response.ok = False
+        response.status_code = 401
+
+        connector = GitHubConnector("test-token")
+
+        with patch(
+            "core.integrations.providers.github.requests.get",
+            return_value=response,
+        ):
+            result = connector.test_connection()
+
+        self.assertFalse(result.success)
+        self.assertIn("401", result.error)
+
+    def test_disconnect_succeeds(self):
+        from .integrations.providers.github import GitHubConnector
+
+        result = GitHubConnector("test-token").disconnect()
+
+        self.assertTrue(result.success)
