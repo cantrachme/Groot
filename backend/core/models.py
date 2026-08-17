@@ -410,6 +410,68 @@ class Document(models.Model):
         return f"{self.organization.name} / {self.name}"
 
 
+class DocumentContent(models.Model):
+    """Stores extracted and normalized text for a document."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    document = models.OneToOneField(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="content",
+    )
+    text = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    extractor = models.CharField(max_length=100, blank=True)
+    error = models.TextField(blank=True)
+    extracted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.document.name} / content"
+
+
+class DocumentChunk(models.Model):
+    """Represents a deterministic chunk of extracted document text."""
+
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="chunks",
+    )
+    chunk_index = models.PositiveIntegerField()
+    text = models.TextField()
+    character_count = models.PositiveIntegerField(default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "chunk_index"],
+                name="unique_document_chunk_index",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["document", "chunk_index"],
+                name="document_chunk_order_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.document.name} / chunk {self.chunk_index}"
+
+
 class Integration(models.Model):
     """Represents an external system integration for an organization."""
 

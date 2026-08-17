@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from .models import Customer, Document, Event, Integration, Membership, Organization, Project, Risk, Team, TeamMembership, Task, User
+from .models import Customer, Document, DocumentChunk, DocumentContent, Event, Integration, Membership, Organization, Project, Risk, Team, TeamMembership, Task, User
 
 
 class CoreModelTests(TestCase):
@@ -1186,4 +1186,122 @@ class IntegrationNormalizationFailureTests(TestCase):
         self.assertEqual(
             result.error,
             "Failed to normalize github data: invalid repository payload",
+        )
+
+
+class DocumentIntelligenceModelTests(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            name="Document Intelligence Organization",
+        )
+        self.user = User.objects.create_user(
+            username="document-intelligence-user",
+            password="testpassword",
+        )
+        self.document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="requirements.pdf",
+            document_type="pdf",
+            storage_key="documents/requirements.pdf",
+            mime_type="application/pdf",
+            size=1024,
+        )
+
+    def test_document_content_persists_extracted_text(self):
+        from django.utils import timezone
+
+        content = DocumentContent.objects.create(
+            document=self.document,
+            text="GROOT document intelligence content.",
+            status=DocumentContent.Status.READY,
+            extractor="text",
+            extracted_at=timezone.now(),
+        )
+
+        self.assertEqual(content.document, self.document)
+        self.assertEqual(
+            content.text,
+            "GROOT document intelligence content.",
+        )
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.READY,
+        )
+        self.assertEqual(content.extractor, "text")
+        self.assertIsNotNone(content.extracted_at)
+        self.assertEqual(self.document.content, content)
+
+    def test_document_chunk_persists_order_and_metadata(self):
+        chunk = DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="First document chunk.",
+            character_count=21,
+            metadata={
+                "page": 1,
+                "section": "Introduction",
+            },
+        )
+
+        self.assertEqual(chunk.document, self.document)
+        self.assertEqual(chunk.chunk_index, 0)
+        self.assertEqual(
+            chunk.text,
+            "First document chunk.",
+        )
+        self.assertEqual(chunk.character_count, 21)
+        self.assertEqual(
+            chunk.metadata["page"],
+            1,
+        )
+        self.assertEqual(
+            chunk.metadata["section"],
+            "Introduction",
+        )
+
+    def test_document_chunk_index_is_unique_per_document(self):
+        from django.db import IntegrityError
+
+        DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="First chunk.",
+        )
+
+        with self.assertRaises(IntegrityError):
+            DocumentChunk.objects.create(
+                document=self.document,
+                chunk_index=0,
+                text="Duplicate chunk.",
+            )
+
+    def test_same_chunk_index_is_allowed_for_different_documents(self):
+        second_document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="architecture.pdf",
+            document_type="pdf",
+            storage_key="documents/architecture.pdf",
+            mime_type="application/pdf",
+            size=2048,
+        )
+
+        first_chunk = DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="First document.",
+        )
+
+        second_chunk = DocumentChunk.objects.create(
+            document=second_document,
+            chunk_index=0,
+            text="Second document.",
+        )
+
+        self.assertEqual(first_chunk.chunk_index, 0)
+        self.assertEqual(second_chunk.chunk_index, 0)
+        self.assertNotEqual(
+            first_chunk.document,
+            second_chunk.document,
         )
