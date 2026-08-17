@@ -1305,3 +1305,49 @@ class DocumentIntelligenceModelTests(TestCase):
             first_chunk.document,
             second_chunk.document,
         )
+
+
+class DocumentExtractorTests(TestCase):
+    def test_plain_text_extractor_extracts_utf8_text(self):
+        from .documents import PlainTextExtractor
+
+        extractor = PlainTextExtractor()
+
+        text = extractor.extract(
+            "GROOT document intelligence".encode("utf-8")
+        )
+
+        self.assertEqual(
+            text,
+            "GROOT document intelligence",
+        )
+
+    def test_plain_text_extractor_supports_expected_mime_types(self):
+        from .documents import PlainTextExtractor
+
+        extractor = PlainTextExtractor()
+
+        self.assertEqual(
+            extractor.supported_mime_types,
+            (
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+            ),
+        )
+
+    def test_plain_text_extractor_name_is_stable(self):
+        from .documents import PlainTextExtractor
+
+        self.assertEqual(
+            PlainTextExtractor.name,
+            "plain_text",
+        )
+
+    def test_plain_text_extractor_rejects_invalid_utf8(self):
+        from .documents import PlainTextExtractor
+
+        extractor = PlainTextExtractor()
+
+        with self.assertRaises(UnicodeDecodeError):
+            extractor.extract(b"invalid-\xff-utf8")
