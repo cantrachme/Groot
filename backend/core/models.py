@@ -258,3 +258,138 @@ class Task(models.Model):
 
     def __str__(self):
         return f"{self.project.name} / {self.title}"
+
+
+class Event(models.Model):
+    """Represents a normalized event within an organization."""
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+    event_type = models.CharField(max_length=100)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    source = models.CharField(max_length=100, blank=True)
+    occurred_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["organization", "occurred_at"],
+                name="event_org_occurred_idx",
+            ),
+            models.Index(
+                fields=["organization", "event_type"],
+                name="event_org_type_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.event_type} / {self.title}"
+
+
+class Risk(models.Model):
+    """Represents a risk associated with an organization."""
+
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        MITIGATED = "mitigated", "Mitigated"
+        RESOLVED = "resolved", "Resolved"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="risks",
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    severity = models.CharField(
+        max_length=20,
+        choices=Severity.choices,
+        default=Severity.MEDIUM,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    source = models.CharField(max_length=100, blank=True)
+    identified_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["organization", "severity"],
+                name="risk_org_severity_idx",
+            ),
+            models.Index(
+                fields=["organization", "status"],
+                name="risk_org_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.title}"
+
+
+class Document(models.Model):
+    """Represents a document belonging to an organization."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        READY = "ready", "Ready"
+        PROCESSING = "processing", "Processing"
+        FAILED = "failed", "Failed"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="documents",
+    )
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_documents",
+    )
+    name = models.CharField(max_length=255)
+    document_type = models.CharField(max_length=100, blank=True)
+    storage_key = models.CharField(max_length=500, unique=True)
+    mime_type = models.CharField(max_length=100, blank=True)
+    size = models.PositiveBigIntegerField(default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["organization", "status"],
+                name="document_org_status_idx",
+            ),
+            models.Index(
+                fields=["organization", "document_type"],
+                name="document_org_type_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.name}"
