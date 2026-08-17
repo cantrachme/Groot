@@ -13,6 +13,7 @@ def process_document(
         DocumentProcessingService,
         DocumentTextChunker,
         DocumentTextNormalizer,
+        PdfExtractor,
         PlainTextExtractor,
     )
     from core.models import Document
@@ -20,7 +21,10 @@ def process_document(
     document = Document.objects.get(pk=document_id)
 
     registry = DocumentExtractorRegistry(
-        [PlainTextExtractor()],
+        [
+            PlainTextExtractor(),
+            PdfExtractor(),
+        ],
     )
 
     pipeline = DocumentIntelligencePipeline(

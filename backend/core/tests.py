@@ -2047,3 +2047,82 @@ class DocumentLifecycleTransitionTests(TestCase):
             self.document.status,
             Document.Status.READY,
         )
+
+
+class PdfExtractorTests(TestCase):
+    def test_pdf_extractor_extracts_text(self):
+        from io import BytesIO
+
+        from pypdf import PdfWriter
+
+        from .documents.extractors import PdfExtractor
+
+        buffer = BytesIO()
+
+        writer = PdfWriter()
+        page = writer.add_blank_page(
+            width=612,
+            height=792,
+        )
+
+        page.merge_page(
+            PdfWriter().add_blank_page(
+                width=612,
+                height=792,
+            )
+        )
+
+        writer.write(buffer)
+
+        extractor = PdfExtractor()
+
+        result = extractor.extract(
+            buffer.getvalue(),
+        )
+
+        self.assertIsInstance(result, str)
+
+    def test_pdf_extractor_returns_empty_text_for_blank_pdf(self):
+        from io import BytesIO
+
+        from pypdf import PdfWriter
+
+        from .documents.extractors import PdfExtractor
+
+        buffer = BytesIO()
+
+        writer = PdfWriter()
+        writer.add_blank_page(
+            width=612,
+            height=792,
+        )
+        writer.write(buffer)
+
+        extractor = PdfExtractor()
+
+        self.assertEqual(
+            extractor.extract(buffer.getvalue()),
+            "",
+        )
+
+
+class PdfExtractorRegistryTests(TestCase):
+    def test_pdf_mime_type_uses_pdf_extractor(self):
+        from .documents import DocumentExtractorRegistry, PdfExtractor
+
+        registry = DocumentExtractorRegistry(
+            [PdfExtractor()],
+        )
+
+        extractor = registry.get(
+            "application/pdf",
+        )
+
+        self.assertIsInstance(
+            extractor,
+            PdfExtractor,
+        )
+        self.assertEqual(
+            extractor.name,
+            "pdf",
+        )
