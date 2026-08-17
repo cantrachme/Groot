@@ -15,8 +15,11 @@ class DatabaseInfrastructureTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_base_metadata_starts_without_domain_tables(self) -> None:
-        self.assertEqual(Base.metadata.tables, {})
+    def test_base_metadata_contains_rag_tables(self) -> None:
+        self.assertIn(
+            "document_chunk_embeddings",
+            Base.metadata.tables,
+        )
 
     def test_get_db_yields_and_closes_session(self) -> None:
         session = Mock(spec=Session)

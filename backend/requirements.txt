@@ -41,3 +41,5 @@ groq==1.6.0
 requests>=2.32,<3
 
 pypdf==6.1.2
+
+pgvector==0.5.0
