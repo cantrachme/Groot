@@ -1734,3 +1734,146 @@ class DocumentChunkPersistenceServiceTests(TestCase):
                 document=self.document,
             ).exists()
         )
+
+
+class DocumentIntelligencePipelineTests(TestCase):
+    def setUp(self):
+        from .documents import (
+            DocumentChunkPersistenceService,
+            DocumentExtractorRegistry,
+            DocumentIntelligencePipeline,
+            DocumentProcessingService,
+            DocumentTextChunker,
+            DocumentTextNormalizer,
+            PlainTextExtractor,
+        )
+
+        self.organization = Organization.objects.create(
+            name="Pipeline Organization",
+        )
+        self.user = User.objects.create_user(
+            username="pipeline-user",
+            password="testpassword",
+        )
+        self.document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="pipeline.txt",
+            document_type="text",
+            storage_key="documents/pipeline.txt",
+            mime_type="text/plain",
+            size=100,
+        )
+
+        registry = DocumentExtractorRegistry(
+            [PlainTextExtractor()],
+        )
+
+        self.pipeline = DocumentIntelligencePipeline(
+            processing_service=DocumentProcessingService(
+                registry,
+            ),
+            normalizer=DocumentTextNormalizer(),
+            chunker=DocumentTextChunker(
+                chunk_size=10,
+            ),
+            chunk_persistence=DocumentChunkPersistenceService(),
+        )
+
+    def test_pipeline_extracts_normalizes_and_persists_chunks(self):
+        content = self.pipeline.process(
+            self.document,
+            (
+                b"\n\n  GROOT   platform  \n"
+                b"Document intelligence  \n\n"
+            ),
+        )
+
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.READY,
+        )
+        self.assertEqual(
+            content.text,
+            "GROOT platform\nDocument intelligence",
+        )
+        self.assertEqual(
+            content.extractor,
+            "plain_text",
+        )
+
+        chunks = list(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).order_by("chunk_index")
+        )
+
+        self.assertEqual(
+            [chunk.chunk_index for chunk in chunks],
+            [0, 1, 2, 3],
+        )
+        self.assertEqual(
+            "".join(chunk.text for chunk in chunks),
+            content.text,
+        )
+
+    def test_pipeline_clears_chunks_when_extraction_fails(self):
+        existing_chunk = DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="old chunk",
+            character_count=9,
+        )
+
+        self.document.mime_type = "application/unknown"
+        self.document.save(
+            update_fields=["mime_type"],
+        )
+
+        content = self.pipeline.process(
+            self.document,
+            b"unsupported document",
+        )
+
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.FAILED,
+        )
+        self.assertFalse(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).exists(),
+        )
+        self.assertFalse(
+            DocumentChunk.objects.filter(
+                pk=existing_chunk.pk,
+            ).exists(),
+        )
+
+    def test_pipeline_replaces_previous_chunks(self):
+        DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="old chunk",
+            character_count=9,
+        )
+
+        content = self.pipeline.process(
+            self.document,
+            b"new pipeline content",
+        )
+
+        chunks = list(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).order_by("chunk_index")
+        )
+
+        self.assertEqual(
+            "".join(chunk.text for chunk in chunks),
+            content.text,
+        )
+        self.assertNotIn(
+            "old chunk",
+            [chunk.text for chunk in chunks],
+        )
