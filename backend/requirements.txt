@@ -39,3 +39,5 @@ wcwidth==0.8.2
 groq==1.6.0
 
 requests>=2.32,<3
+
+pypdf==6.1.2

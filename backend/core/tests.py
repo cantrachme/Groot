@@ -2126,3 +2126,16 @@ class PdfExtractorRegistryTests(TestCase):
             extractor.name,
             "pdf",
         )
+
+
+class PdfExtractorFailureTests(TestCase):
+    def test_invalid_pdf_raises_controlled_value_error(self):
+        from .documents.extractors import PdfExtractor
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Unable to read PDF document:",
+        ):
+            PdfExtractor().extract(
+                b"this is not a valid PDF",
+            )
