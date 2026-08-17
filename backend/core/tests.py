@@ -1460,3 +1460,77 @@ class DocumentProcessingServiceTests(TestCase):
             content.error.lower(),
         )
         self.assertEqual(content.text, "")
+
+
+class DocumentTextNormalizerTests(TestCase):
+    def test_normalizer_normalizes_line_endings_and_whitespace(self):
+        from .documents import DocumentTextNormalizer
+
+        normalizer = DocumentTextNormalizer()
+
+        result = normalizer.normalize(
+            "  GROOT   document  \r\n"
+            "\tintelligence\tplatform  \r"
+            "\n\n"
+        )
+
+        self.assertEqual(
+            result,
+            "GROOT document\nintelligence platform",
+        )
+
+    def test_normalizer_removes_empty_boundary_lines(self):
+        from .documents import DocumentTextNormalizer
+
+        normalizer = DocumentTextNormalizer()
+
+        result = normalizer.normalize(
+            "\n\n  First line  \n\nSecond line\n\n"
+        )
+
+        self.assertEqual(
+            result,
+            "First line\nSecond line",
+        )
+
+    def test_normalizer_removes_null_characters(self):
+        from .documents import DocumentTextNormalizer
+
+        normalizer = DocumentTextNormalizer()
+
+        result = normalizer.normalize(
+            "GROOT\x00 document\x00 intelligence"
+        )
+
+        self.assertEqual(
+            result,
+            "GROOT document intelligence",
+        )
+
+    def test_normalizer_returns_empty_string_for_empty_input(self):
+        from .documents import DocumentTextNormalizer
+
+        normalizer = DocumentTextNormalizer()
+
+        self.assertEqual(
+            normalizer.normalize(""),
+            "",
+        )
+
+    def test_normalizer_preserves_meaningful_line_boundaries(self):
+        from .documents import DocumentTextNormalizer
+
+        normalizer = DocumentTextNormalizer()
+
+        result = normalizer.normalize(
+            "Company Overview\n"
+            "Revenue increased by 25%.\n"
+            "Risk: customer concentration."
+        )
+
+        self.assertEqual(
+            result,
+            "Company Overview\n"
+            "Revenue increased by 25%.\n"
+            "Risk: customer concentration.",
+        )
