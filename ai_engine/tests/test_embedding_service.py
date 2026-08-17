@@ -63,6 +63,154 @@ class EmbeddingServiceTests(unittest.TestCase):
         db.commit.assert_called_once_with()
         db.refresh.assert_called_once_with(result)
 
+    def test_embeds_chunks_in_configured_batches(self):
+        provider = Mock(spec=EmbeddingProvider)
+        provider.embed_texts.side_effect = [
+            [
+                [0.1, 0.2, 0.3],
+                [0.4, 0.5, 0.6],
+            ],
+            [
+                [0.7, 0.8, 0.9],
+            ],
+        ]
+
+        config = EmbeddingConfig(
+            provider="fake",
+            model="test-model",
+            dimensions=3,
+            batch_size=2,
+        )
+        db = Mock()
+
+        service = EmbeddingService(
+            provider=provider,
+            config=config,
+        )
+
+        result = service.embed_chunks(
+            db=db,
+            chunks=[
+                (1, "first"),
+                (2, "second"),
+                (3, "third"),
+            ],
+        )
+
+        self.assertEqual(len(result), 3)
+
+        provider.embed_texts.assert_any_call(
+            ["first", "second"],
+        )
+        provider.embed_texts.assert_any_call(
+            ["third"],
+        )
+
+        self.assertEqual(
+            provider.embed_texts.call_count,
+            2,
+        )
+
+        db.add_all.assert_called_once_with(result)
+        db.commit.assert_called_once_with()
+        self.assertEqual(
+            db.refresh.call_count,
+            3,
+        )
+
+    def test_empty_batch_returns_without_database_work(self):
+        provider = Mock(spec=EmbeddingProvider)
+        config = EmbeddingConfig(
+            provider="fake",
+            model="test-model",
+            dimensions=3,
+        )
+        db = Mock()
+
+        service = EmbeddingService(
+            provider=provider,
+            config=config,
+        )
+
+        result = service.embed_chunks(
+            db=db,
+            chunks=[],
+        )
+
+        self.assertEqual(result, [])
+        provider.embed_texts.assert_not_called()
+        db.add_all.assert_not_called()
+        db.commit.assert_not_called()
+
+    def test_rejects_unexpected_embedding_count(self):
+        provider = Mock(spec=EmbeddingProvider)
+        provider.embed_texts.return_value = [
+            [0.1, 0.2, 0.3],
+        ]
+
+        config = EmbeddingConfig(
+            provider="fake",
+            model="test-model",
+            dimensions=3,
+            batch_size=2,
+        )
+        db = Mock()
+
+        service = EmbeddingService(
+            provider=provider,
+            config=config,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "expected 2, got 1",
+        ):
+            service.embed_chunks(
+                db=db,
+                chunks=[
+                    (1, "first"),
+                    (2, "second"),
+                ],
+            )
+
+        db.add_all.assert_not_called()
+        db.commit.assert_not_called()
+
+    def test_rejects_batch_dimension_mismatch(self):
+        provider = Mock(spec=EmbeddingProvider)
+        provider.embed_texts.return_value = [
+            [0.1, 0.2],
+            [0.3, 0.4],
+        ]
+
+        config = EmbeddingConfig(
+            provider="fake",
+            model="test-model",
+            dimensions=3,
+            batch_size=2,
+        )
+        db = Mock()
+
+        service = EmbeddingService(
+            provider=provider,
+            config=config,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "expected 3, got 2",
+        ):
+            service.embed_chunks(
+                db=db,
+                chunks=[
+                    (1, "first"),
+                    (2, "second"),
+                ],
+            )
+
+        db.add_all.assert_not_called()
+        db.commit.assert_not_called()
+
     def test_rejects_dimension_mismatch(self):
         provider = FakeEmbeddingProvider(
             [0.1, 0.2],
