@@ -1877,3 +1877,87 @@ class DocumentIntelligencePipelineTests(TestCase):
             "old chunk",
             [chunk.text for chunk in chunks],
         )
+
+
+class DocumentProcessingTaskTests(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            name="Document Task Organization",
+        )
+        self.user = User.objects.create_user(
+            username="document-task-user",
+            password="testpassword",
+        )
+        self.document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="task.txt",
+            document_type="text",
+            storage_key="documents/task.txt",
+            mime_type="text/plain",
+            size=100,
+        )
+
+    def test_task_processes_document_and_returns_result(self):
+        from .documents.tasks import process_document
+
+        result = process_document.apply(
+            args=[
+                self.document.id,
+                b"  GROOT   async processing content.  ",
+            ],
+        ).get()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            result["document_id"],
+            self.document.id,
+        )
+        self.assertEqual(
+            result["status"],
+            DocumentContent.Status.READY,
+        )
+        self.assertGreater(
+            result["chunk_count"],
+            0,
+        )
+        self.assertIsNone(result["error"])
+
+        document_content = DocumentContent.objects.get(
+            document=self.document,
+        )
+
+        self.assertEqual(
+            document_content.text,
+            "GROOT async processing content.",
+        )
+
+    def test_task_returns_failure_for_unsupported_document(self):
+        from .documents.tasks import process_document
+
+        self.document.mime_type = "application/unknown"
+        self.document.save(
+            update_fields=["mime_type"],
+        )
+
+        result = process_document.apply(
+            args=[
+                self.document.id,
+                b"unsupported content",
+            ],
+        ).get()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(
+            result["document_id"],
+            self.document.id,
+        )
+        self.assertEqual(
+            result["status"],
+            DocumentContent.Status.FAILED,
+        )
+        self.assertEqual(
+            result["chunk_count"],
+            0,
+        )
+        self.assertIsNotNone(result["error"])
