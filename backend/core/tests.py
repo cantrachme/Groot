@@ -1605,3 +1605,132 @@ class DocumentTextChunkerTests(TestCase):
             "".join(chunk.text for chunk in chunks),
             text,
         )
+
+
+class DocumentChunkPersistenceServiceTests(TestCase):
+    def setUp(self):
+        from .documents import DocumentChunkPersistenceService
+
+        self.organization = Organization.objects.create(
+            name="Chunk Persistence Organization",
+        )
+        self.user = User.objects.create_user(
+            username="chunk-persistence-user",
+            password="testpassword",
+        )
+        self.document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="knowledge.txt",
+            document_type="text",
+            storage_key="documents/knowledge.txt",
+            mime_type="text/plain",
+            size=100,
+        )
+        self.service = DocumentChunkPersistenceService()
+
+    def test_persist_creates_document_chunks(self):
+        from .documents import TextChunk
+
+        chunks = self.service.persist(
+            self.document,
+            [
+                TextChunk(
+                    index=0,
+                    text="First chunk.",
+                    character_count=12,
+                ),
+                TextChunk(
+                    index=1,
+                    text="Second chunk.",
+                    character_count=13,
+                ),
+            ],
+        )
+
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).count(),
+            2,
+        )
+
+        persisted = list(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).order_by("chunk_index")
+        )
+
+        self.assertEqual(
+            [chunk.chunk_index for chunk in persisted],
+            [0, 1],
+        )
+        self.assertEqual(
+            [chunk.text for chunk in persisted],
+            ["First chunk.", "Second chunk."],
+        )
+        self.assertEqual(
+            [chunk.character_count for chunk in persisted],
+            [12, 13],
+        )
+
+    def test_persist_replaces_existing_chunks(self):
+        from .documents import TextChunk
+
+        DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="Old chunk.",
+            character_count=10,
+        )
+
+        self.service.persist(
+            self.document,
+            [
+                TextChunk(
+                    index=0,
+                    text="New chunk.",
+                    character_count=10,
+                ),
+                TextChunk(
+                    index=1,
+                    text="Another new chunk.",
+                    character_count=18,
+                ),
+            ],
+        )
+
+        persisted = list(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).order_by("chunk_index")
+        )
+
+        self.assertEqual(len(persisted), 2)
+        self.assertEqual(
+            [chunk.text for chunk in persisted],
+            ["New chunk.", "Another new chunk."],
+        )
+
+    def test_persist_empty_chunks_removes_existing_chunks(self):
+        from .documents import TextChunk
+
+        DocumentChunk.objects.create(
+            document=self.document,
+            chunk_index=0,
+            text="Existing chunk.",
+            character_count=15,
+        )
+
+        result = self.service.persist(
+            self.document,
+            [],
+        )
+
+        self.assertEqual(result, [])
+        self.assertFalse(
+            DocumentChunk.objects.filter(
+                document=self.document,
+            ).exists()
+        )
