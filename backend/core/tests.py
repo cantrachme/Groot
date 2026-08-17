@@ -1100,5 +1100,90 @@ class GitHubIngestionTaskTests(TestCase):
         )
         self.assertEqual(
             event.title,
-            "Groot",
+            "cantrachme/Groot",
+        )
+
+
+class IngestionTaskFailureTests(TestCase):
+    def test_missing_organization_returns_failure(self):
+        from .ingestion.tasks import ingest_integration
+
+        result = ingest_integration.apply(
+            args=[
+                "github",
+                "GITHUB_TOKEN",
+                999999,
+            ],
+        ).get()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["event_count"], 0)
+        self.assertEqual(result["persisted_count"], 0)
+        self.assertEqual(
+            result["error"],
+            "Organization not found: 999999",
+        )
+
+    def test_unregistered_provider_returns_failure(self):
+        from unittest.mock import patch
+
+        from .ingestion.tasks import ingest_integration
+
+        organization = Organization.objects.create(
+            name="Unregistered Provider Organization",
+        )
+
+        with patch.dict(
+            "os.environ",
+            {"FAKE_TOKEN": "test-token"},
+            clear=False,
+        ):
+            result = ingest_integration.apply(
+                args=[
+                    "unknown_provider",
+                    "FAKE_TOKEN",
+                    organization.id,
+                ],
+            ).get()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["event_count"], 0)
+        self.assertEqual(result["persisted_count"], 0)
+        self.assertEqual(
+            result["error"],
+            "Integration provider not registered: unknown_provider",
+        )
+
+
+class IntegrationNormalizationFailureTests(TestCase):
+    def test_normalization_failure_returns_controlled_result(self):
+        from unittest.mock import Mock
+
+        from .ingestion import IngestionService
+        from .integrations import ConnectorResult
+
+        integration_service = Mock()
+        integration_service.fetch_and_normalize.return_value = (
+            ConnectorResult(
+                success=False,
+                error=(
+                    "Failed to normalize github data: "
+                    "invalid repository payload"
+                ),
+            ),
+            [],
+        )
+
+        service = IngestionService(integration_service)
+
+        result = service.ingest(
+            "github",
+            "GITHUB_TOKEN",
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.events, [])
+        self.assertEqual(
+            result.error,
+            "Failed to normalize github data: invalid repository payload",
         )
