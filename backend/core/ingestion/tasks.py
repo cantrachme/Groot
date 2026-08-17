@@ -34,15 +34,33 @@ def ingest_integration(
         integration_service=integration_service,
     )
 
-    organization = Organization.objects.get(
-        pk=organization_id,
-    )
+    try:
+        organization = Organization.objects.get(
+            pk=organization_id,
+        )
+    except Organization.DoesNotExist:
+        return {
+            "success": False,
+            "event_count": 0,
+            "persisted_count": 0,
+            "error": (
+                f"Organization not found: {organization_id}"
+            ),
+        }
 
-    result = ingestion_service.ingest(
-        provider,
-        credential_key,
-        **kwargs,
-    )
+    try:
+        result = ingestion_service.ingest(
+            provider,
+            credential_key,
+            **kwargs,
+        )
+    except KeyError:
+        return {
+            "success": False,
+            "event_count": 0,
+            "persisted_count": 0,
+            "error": f"Integration provider not registered: {provider}",
+        }
 
     if not result.success:
         return {
