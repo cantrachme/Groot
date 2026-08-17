@@ -1351,3 +1351,112 @@ class DocumentExtractorTests(TestCase):
 
         with self.assertRaises(UnicodeDecodeError):
             extractor.extract(b"invalid-\xff-utf8")
+
+
+class DocumentProcessingServiceTests(TestCase):
+    def setUp(self):
+        from .documents import (
+            DocumentExtractorRegistry,
+            DocumentProcessingService,
+            PlainTextExtractor,
+        )
+
+        self.organization = Organization.objects.create(
+            name="Processing Organization",
+        )
+        self.user = User.objects.create_user(
+            username="processing-user",
+            password="testpassword",
+        )
+        self.document = Document.objects.create(
+            organization=self.organization,
+            uploaded_by=self.user,
+            name="notes.txt",
+            document_type="text",
+            storage_key="documents/notes.txt",
+            mime_type="text/plain",
+            size=32,
+        )
+
+        registry = DocumentExtractorRegistry(
+            [PlainTextExtractor()],
+        )
+        self.service = DocumentProcessingService(registry)
+
+    def test_process_creates_ready_document_content(self):
+        content = self.service.process(
+            self.document,
+            b"GROOT processing content.",
+        )
+
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.READY,
+        )
+        self.assertEqual(
+            content.text,
+            "GROOT processing content.",
+        )
+        self.assertEqual(
+            content.extractor,
+            "plain_text",
+        )
+        self.assertEqual(content.error, "")
+        self.assertIsNotNone(content.extracted_at)
+
+    def test_process_updates_existing_document_content(self):
+        existing = DocumentContent.objects.create(
+            document=self.document,
+            text="old content",
+            status=DocumentContent.Status.FAILED,
+            error="previous error",
+        )
+
+        content = self.service.process(
+            self.document,
+            b"new content",
+        )
+
+        self.assertEqual(content.pk, existing.pk)
+        self.assertEqual(content.text, "new content")
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.READY,
+        )
+        self.assertEqual(content.error, "")
+
+    def test_process_marks_content_failed_for_unsupported_mime_type(self):
+        self.document.mime_type = "application/unknown"
+        self.document.save(update_fields=["mime_type"])
+
+        content = self.service.process(
+            self.document,
+            b"unsupported",
+        )
+
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.FAILED,
+        )
+        self.assertIn(
+            "No document extractor registered",
+            content.error,
+        )
+        self.assertEqual(content.text, "")
+        self.assertIsNone(content.extracted_at)
+
+    def test_process_marks_content_failed_for_invalid_text(self):
+        content = self.service.process(
+            self.document,
+            b"invalid-\xff-utf8",
+        )
+
+        self.assertEqual(
+            content.status,
+            DocumentContent.Status.FAILED,
+        )
+        self.assertIn(
+            "utf-8",
+            content.error.lower(),
+        )
+        self.assertEqual(content.text, "")
