@@ -186,3 +186,37 @@ class CompanyDomainModelTests(TestCase):
             other_organization.teams.count(),
             1,
         )
+
+
+class IntegrationRegistryTests(TestCase):
+    class FakeConnector:
+        provider = "fake"
+
+    def test_register_and_get_connector(self):
+        from .integrations import IntegrationRegistry
+
+        registry = IntegrationRegistry()
+        connector = self.FakeConnector()
+
+        registry.register(connector)
+
+        self.assertTrue(registry.has("fake"))
+        self.assertIs(registry.get("fake"), connector)
+        self.assertEqual(registry.providers(), ("fake",))
+
+    def test_duplicate_provider_is_rejected(self):
+        from .integrations import IntegrationRegistry
+
+        registry = IntegrationRegistry()
+        registry.register(self.FakeConnector())
+
+        with self.assertRaises(ValueError):
+            registry.register(self.FakeConnector())
+
+    def test_unknown_provider_is_rejected(self):
+        from .integrations import IntegrationRegistry
+
+        registry = IntegrationRegistry()
+
+        with self.assertRaises(KeyError):
+            registry.get("unknown")
