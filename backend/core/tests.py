@@ -490,3 +490,615 @@ class IntegrationServiceTests(TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].event_type, "fake_event")
         self.assertEqual(events[0].title, "example")
+
+
+class IngestionServiceTests(TestCase):
+    class FakeIntegrationService:
+        def __init__(self, success=True):
+            self.success = success
+
+        def fetch_and_normalize(self, provider, credential_key, **kwargs):
+            from .integrations import ConnectorResult, NormalizedEvent
+
+            if not self.success:
+                return (
+                    ConnectorResult(
+                        success=False,
+                        error="Integration failed",
+                    ),
+                    [],
+                )
+
+            return (
+                ConnectorResult(
+                    success=True,
+                    data=[{"name": "example"}],
+                ),
+                [
+                    NormalizedEvent(
+                        event_type="fake_event",
+                        title="example",
+                        source=provider,
+                    )
+                ],
+            )
+
+    def test_ingest_returns_normalized_events(self):
+        from .ingestion import IngestionService
+
+        service = IngestionService(
+            self.FakeIntegrationService(),
+        )
+
+        result = service.ingest(
+            "fake",
+            "FAKE_TOKEN",
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(len(result.events), 1)
+        self.assertEqual(
+            result.events[0].event_type,
+            "fake_event",
+        )
+        self.assertEqual(
+            result.events[0].title,
+            "example",
+        )
+
+    def test_ingest_propagates_integration_failure(self):
+        from .ingestion import IngestionService
+
+        service = IngestionService(
+            self.FakeIntegrationService(success=False),
+        )
+
+        result = service.ingest(
+            "fake",
+            "FAKE_TOKEN",
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.events, [])
+        self.assertEqual(result.error, "Integration failed")
+
+    def test_ingest_passes_arguments_to_integration_service(self):
+        from unittest.mock import Mock
+
+        from .ingestion import IngestionService
+        from .integrations import ConnectorResult, NormalizedEvent
+
+        integration_service = Mock()
+
+        integration_service.fetch_and_normalize.return_value = (
+            ConnectorResult(success=True),
+            [
+                NormalizedEvent(
+                    event_type="repository",
+                    title="GROOT",
+                )
+            ],
+        )
+
+        service = IngestionService(integration_service)
+
+        service.ingest(
+            "github",
+            "GITHUB_TOKEN",
+            endpoint="/user/repos",
+        )
+
+        integration_service.fetch_and_normalize.assert_called_once_with(
+            "github",
+            "GITHUB_TOKEN",
+            endpoint="/user/repos",
+        )
+
+
+class IngestionTaskTests(TestCase):
+    def test_ingestion_task_returns_failure_for_missing_credential(self):
+        import os
+
+        from .ingestion.tasks import ingest_integration
+
+        organization = Organization.objects.create(
+            name="Task Test Organization",
+        )
+
+        os.environ.pop("GITHUB_TOKEN", None)
+
+        result = ingest_integration.apply(
+            args=[
+                "github",
+                "GITHUB_TOKEN",
+                organization.id,
+            ],
+        ).get()
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["event_count"], 0)
+        self.assertEqual(result["persisted_count"], 0)
+        self.assertEqual(
+            result["error"],
+            "Credential not configured: GITHUB_TOKEN",
+        )
+
+
+class EventPersistenceServiceTests(TestCase):
+    def setUp(self):
+        from .ingestion import EventPersistenceService
+
+        self.organization = Organization.objects.create(
+            name="Persistence Organization",
+        )
+        self.service = EventPersistenceService()
+
+    def test_persist_creates_event(self):
+        from .integrations import NormalizedEvent
+
+        from django.utils import timezone
+
+        occurred_at = timezone.now()
+
+        normalized_event = NormalizedEvent(
+            event_type="github_repository",
+            title="cantrachme/Groot",
+            description="GROOT repository",
+            source="github",
+            occurred_at=occurred_at,
+            metadata={
+                "repository_id": 123,
+            },
+        )
+
+        event = self.service.persist(
+            self.organization,
+            normalized_event,
+        )
+
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(event.organization, self.organization)
+        self.assertEqual(event.event_type, "github_repository")
+        self.assertEqual(event.title, "cantrachme/Groot")
+        self.assertEqual(event.description, "GROOT repository")
+        self.assertEqual(event.source, "github")
+        self.assertEqual(event.occurred_at, occurred_at)
+        self.assertEqual(
+            event.metadata["repository_id"],
+            123,
+        )
+
+    def test_persist_uses_current_time_when_occurred_at_is_missing(self):
+        from django.utils import timezone
+
+        from .integrations import NormalizedEvent
+
+        before = timezone.now()
+
+        event = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="github_repository",
+                title="GROOT",
+                source="github",
+            ),
+        )
+
+        after = timezone.now()
+
+        self.assertIsNotNone(event.occurred_at)
+        self.assertGreaterEqual(event.occurred_at, before)
+        self.assertLessEqual(event.occurred_at, after)
+
+    def test_persist_preserves_organization(self):
+        from .integrations import NormalizedEvent
+
+        event = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="repository",
+                title="GROOT",
+            ),
+        )
+
+        self.assertEqual(
+            Event.objects.get(pk=event.pk).organization,
+            self.organization,
+        )
+
+    def test_persist_many_creates_all_events(self):
+        from .integrations import NormalizedEvent
+
+        events = self.service.persist_many(
+            self.organization,
+            [
+                NormalizedEvent(
+                    event_type="repository",
+                    title="Repository A",
+                ),
+                NormalizedEvent(
+                    event_type="repository",
+                    title="Repository B",
+                ),
+                NormalizedEvent(
+                    event_type="repository",
+                    title="Repository C",
+                ),
+            ],
+        )
+
+        self.assertEqual(len(events), 3)
+        self.assertEqual(Event.objects.count(), 3)
+        self.assertEqual(
+            list(
+                Event.objects.values_list(
+                    "title",
+                    flat=True,
+                )
+            ),
+            [
+                "Repository A",
+                "Repository B",
+                "Repository C",
+            ],
+        )
+
+    def test_persist_many_keeps_all_events_in_same_organization(self):
+        from .integrations import NormalizedEvent
+
+        events = self.service.persist_many(
+            self.organization,
+            [
+                NormalizedEvent(
+                    event_type="event_a",
+                    title="Event A",
+                ),
+                NormalizedEvent(
+                    event_type="event_b",
+                    title="Event B",
+                ),
+            ],
+        )
+
+        self.assertTrue(
+            all(
+                event.organization_id
+                == self.organization.id
+                for event in events
+            )
+        )
+
+
+class EventIdempotencyTests(TestCase):
+    def setUp(self):
+        from .ingestion import EventPersistenceService
+
+        self.organization = Organization.objects.create(
+            name="Idempotency Organization",
+        )
+        self.service = EventPersistenceService()
+
+    def test_same_external_event_is_not_duplicated(self):
+        from .integrations import NormalizedEvent
+
+        normalized_event = NormalizedEvent(
+            event_type="github_repository",
+            title="GROOT",
+            source="github",
+            external_id="repository:123",
+            metadata={"stars": 10},
+        )
+
+        first = self.service.persist(
+            self.organization,
+            normalized_event,
+        )
+        second = self.service.persist(
+            self.organization,
+            normalized_event,
+        )
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(Event.objects.count(), 1)
+
+    def test_same_external_identity_updates_existing_event(self):
+        from .integrations import NormalizedEvent
+
+        first = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="github_repository",
+                title="GROOT",
+                source="github",
+                external_id="repository:123",
+                metadata={"stars": 10},
+            ),
+        )
+
+        second = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="github_repository",
+                title="GROOT",
+                source="github",
+                external_id="repository:123",
+                metadata={"stars": 25},
+            ),
+        )
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(Event.objects.count(), 1)
+
+        refreshed = Event.objects.get(pk=first.pk)
+
+        self.assertEqual(
+            refreshed.metadata["stars"],
+            25,
+        )
+
+    def test_same_external_id_can_exist_for_different_organizations(self):
+        from .integrations import NormalizedEvent
+
+        other_organization = Organization.objects.create(
+            name="Other Idempotency Organization",
+        )
+
+        event_a = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="github_repository",
+                title="GROOT",
+                source="github",
+                external_id="repository:123",
+            ),
+        )
+
+        event_b = self.service.persist(
+            other_organization,
+            NormalizedEvent(
+                event_type="github_repository",
+                title="GROOT",
+                source="github",
+                external_id="repository:123",
+            ),
+        )
+
+        self.assertNotEqual(event_a.pk, event_b.pk)
+        self.assertEqual(Event.objects.count(), 2)
+
+    def test_events_without_external_id_are_not_forced_to_be_unique(self):
+        from .integrations import NormalizedEvent
+
+        event_a = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="manual",
+                title="Same event",
+                source="manual",
+            ),
+        )
+
+        event_b = self.service.persist(
+            self.organization,
+            NormalizedEvent(
+                event_type="manual",
+                title="Same event",
+                source="manual",
+            ),
+        )
+
+        self.assertNotEqual(event_a.pk, event_b.pk)
+        self.assertEqual(Event.objects.count(), 2)
+
+
+class GitHubIntegrationEventTests(TestCase):
+    def test_github_repository_normalizes_external_id(self):
+        from core.integrations.providers.github import GitHubConnector
+
+        connector = GitHubConnector("test-token")
+
+        events = connector.normalize(
+            [
+                {
+                    "id": 12345,
+                    "full_name": "cantrachme/Groot",
+                    "name": "Groot",
+                    "description": "GROOT project",
+                    "owner": {
+                        "login": "cantrachme",
+                    },
+                    "html_url": "https://github.com/cantrachme/Groot",
+                    "private": False,
+                    "default_branch": "main",
+                }
+            ]
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(
+            events[0].external_id,
+            "repository:12345",
+        )
+        self.assertEqual(
+            events[0].source,
+            "github",
+        )
+        self.assertEqual(
+            events[0].event_type,
+            "github_repository",
+        )
+
+    def test_github_repository_without_id_has_no_external_id(self):
+        from core.integrations.providers.github import GitHubConnector
+
+        connector = GitHubConnector("test-token")
+
+        events = connector.normalize(
+            [
+                {
+                    "full_name": "cantrachme/Groot",
+                    "name": "Groot",
+                }
+            ]
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0].external_id)
+
+
+class GitHubEventPersistenceTests(TestCase):
+    def test_github_events_persist_with_external_identity(self):
+        from core.ingestion import EventPersistenceService
+        from core.integrations.providers.github import GitHubConnector
+
+        organization = Organization.objects.create(
+            name="GitHub Persistence Organization",
+        )
+
+        connector = GitHubConnector("test-token")
+
+        normalized_events = connector.normalize(
+            [
+                {
+                    "id": 98765,
+                    "full_name": "cantrachme/Groot",
+                    "name": "Groot",
+                    "description": "GROOT project",
+                    "owner": {"login": "cantrachme"},
+                    "html_url": "https://github.com/cantrachme/Groot",
+                    "private": False,
+                    "default_branch": "main",
+                }
+            ]
+        )
+
+        service = EventPersistenceService()
+
+        events = service.persist_many(
+            organization,
+            normalized_events,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(
+            events[0].external_id,
+            "repository:98765",
+        )
+        self.assertEqual(
+            events[0].source,
+            "github",
+        )
+
+    def test_repeated_github_ingestion_does_not_duplicate_repository(self):
+        from core.ingestion import EventPersistenceService
+        from core.integrations.providers.github import GitHubConnector
+
+        organization = Organization.objects.create(
+            name="GitHub Idempotency Organization",
+        )
+
+        connector = GitHubConnector("test-token")
+
+        payload = [
+            {
+                "id": 55555,
+                "full_name": "cantrachme/Groot",
+                "name": "Groot",
+                "description": "GROOT project",
+                "owner": {"login": "cantrachme"},
+                "html_url": "https://github.com/cantrachme/Groot",
+                "private": False,
+                "default_branch": "main",
+            }
+        ]
+
+        normalized_events = connector.normalize(payload)
+
+        service = EventPersistenceService()
+
+        first = service.persist_many(
+            organization,
+            normalized_events,
+        )
+
+        second = service.persist_many(
+            organization,
+            connector.normalize(payload),
+        )
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(first[0].pk, second[0].pk)
+        self.assertEqual(Event.objects.count(), 1)
+
+
+class GitHubIngestionTaskTests(TestCase):
+    def test_ingestion_task_persists_github_events(self):
+        from unittest.mock import patch
+
+        organization = Organization.objects.create(
+            name="Celery GitHub Organization",
+        )
+
+        github_payload = [
+            {
+                "id": 77777,
+                "full_name": "cantrachme/Groot",
+                "name": "Groot",
+                "description": "GROOT project",
+                "owner": {"login": "cantrachme"},
+                "html_url": "https://github.com/cantrachme/Groot",
+                "private": False,
+                "default_branch": "main",
+            }
+        ]
+
+        with patch.dict(
+            "os.environ",
+            {"GITHUB_TOKEN": "test-token"},
+        ), patch(
+            "core.integrations.providers.github.GitHubConnector.fetch",
+            return_value=(
+                type(
+                    "ConnectorResult",
+                    (),
+                    {
+                        "success": True,
+                        "data": github_payload,
+                        "error": None,
+                    },
+                )()
+            ),
+        ):
+            from core.ingestion.tasks import ingest_integration
+
+            result = ingest_integration.apply(
+                args=[
+                    "github",
+                    "GITHUB_TOKEN",
+                    organization.id,
+                ],
+            ).get()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["event_count"], 1)
+        self.assertEqual(result["persisted_count"], 1)
+        self.assertIsNone(result["error"])
+
+        event = Event.objects.get(
+            organization=organization,
+        )
+
+        self.assertEqual(
+            event.external_id,
+            "repository:77777",
+        )
+        self.assertEqual(
+            event.source,
+            "github",
+        )
+        self.assertEqual(
+            event.title,
+            "Groot",
+        )

@@ -272,11 +272,22 @@ class Event(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     source = models.CharField(max_length=100, blank=True)
+    external_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
     occurred_at = models.DateTimeField()
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "source", "external_id"],
+                name="unique_event_external_identity",
+            ),
+        ]
         indexes = [
             models.Index(
                 fields=["organization", "occurred_at"],
@@ -285,6 +296,10 @@ class Event(models.Model):
             models.Index(
                 fields=["organization", "event_type"],
                 name="event_org_type_idx",
+            ),
+            models.Index(
+                fields=["organization", "source", "external_id"],
+                name="event_org_source_external_idx",
             ),
         ]
 

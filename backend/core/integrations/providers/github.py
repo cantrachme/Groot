@@ -104,6 +104,11 @@ class GitHubConnector(IntegrationConnector):
                 NormalizedEvent(
                     event_type="github_repository",
                     title=name,
+                    external_id=(
+                        f"repository:{item.get('id')}"
+                        if item.get("id") is not None
+                        else None
+                    ),
                     description=item.get("description") or "",
                     source="github",
                     metadata={

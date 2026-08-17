@@ -14,6 +14,7 @@ class ConnectorResult:
 class NormalizedEvent:
     event_type: str
     title: str
+    external_id: str | None = None
     description: str = ""
     source: str = ""
     occurred_at: datetime | None = None
