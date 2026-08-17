@@ -1534,3 +1534,74 @@ class DocumentTextNormalizerTests(TestCase):
             "Revenue increased by 25%.\n"
             "Risk: customer concentration.",
         )
+
+
+class DocumentTextChunkerTests(TestCase):
+    def test_chunker_splits_text_into_fixed_size_chunks(self):
+        from .documents import DocumentTextChunker
+
+        chunker = DocumentTextChunker(chunk_size=5)
+
+        chunks = chunker.chunk("ABCDEFGHIJK")
+
+        self.assertEqual(
+            [chunk.text for chunk in chunks],
+            ["ABCDE", "FGHIJ", "K"],
+        )
+
+    def test_chunker_assigns_deterministic_indexes(self):
+        from .documents import DocumentTextChunker
+
+        chunker = DocumentTextChunker(chunk_size=4)
+
+        chunks = chunker.chunk("ABCDEFGHI")
+
+        self.assertEqual(
+            [chunk.index for chunk in chunks],
+            [0, 1, 2],
+        )
+
+    def test_chunker_records_character_counts(self):
+        from .documents import DocumentTextChunker
+
+        chunker = DocumentTextChunker(chunk_size=4)
+
+        chunks = chunker.chunk("ABCDEFGHI")
+
+        self.assertEqual(
+            [chunk.character_count for chunk in chunks],
+            [4, 4, 1],
+        )
+
+    def test_chunker_returns_empty_list_for_empty_text(self):
+        from .documents import DocumentTextChunker
+
+        chunker = DocumentTextChunker(chunk_size=100)
+
+        self.assertEqual(
+            chunker.chunk(""),
+            [],
+        )
+
+    def test_chunker_rejects_non_positive_chunk_size(self):
+        from .documents import DocumentTextChunker
+
+        with self.assertRaises(ValueError):
+            DocumentTextChunker(chunk_size=0)
+
+        with self.assertRaises(ValueError):
+            DocumentTextChunker(chunk_size=-1)
+
+    def test_chunker_preserves_text_exactly(self):
+        from .documents import DocumentTextChunker
+
+        text = "Company Overview\nRevenue: 25%\nRisk: concentration."
+
+        chunker = DocumentTextChunker(chunk_size=10)
+
+        chunks = chunker.chunk(text)
+
+        self.assertEqual(
+            "".join(chunk.text for chunk in chunks),
+            text,
+        )
