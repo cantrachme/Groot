@@ -64,3 +64,137 @@ class Membership(models.Model):
 
     def __str__(self):
         return f"{self.user.username} @ {self.organization.name} ({self.role})"
+
+class Team(models.Model):
+    """Represents a team within an organization."""
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="teams",
+    )
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_team_organization_name",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.name}"
+
+
+class TeamMembership(models.Model):
+    """Links a user to a team with a team-level role."""
+
+    class Role(models.TextChoices):
+        LEAD = "lead", "Lead"
+        MEMBER = "member", "Member"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="team_memberships",
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.MEMBER,
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "team"],
+                name="unique_user_team",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} @ {self.team.name} ({self.role})"
+
+
+class Customer(models.Model):
+    """Represents a customer belonging to an organization."""
+
+    class Status(models.TextChoices):
+        PROSPECT = "prospect", "Prospect"
+        ACTIVE = "active", "Active"
+        INACTIVE = "inactive", "Inactive"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="customers",
+    )
+    name = models.CharField(max_length=255)
+    contact_email = models.EmailField(max_length=254, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PROSPECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_customer_organization_name",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.name}"
+
+
+class Project(models.Model):
+    """Represents a project belonging to an organization."""
+
+    class Status(models.TextChoices):
+        PLANNED = "planned", "Planned"
+        ACTIVE = "active", "Active"
+        COMPLETED = "completed", "Completed"
+        ARCHIVED = "archived", "Archived"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="projects",
+    )
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PLANNED,
+    )
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_project_organization_name",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} / {self.name}"
