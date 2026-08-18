@@ -5,6 +5,7 @@ from .exceptions import AgentNotFoundError
 from .graph import AgentGraph, AgentGraphState
 from .policy import AgentCapabilityPolicy
 from .registry import AgentRegistry
+from .research import ResearchAgent
 from .result import AgentResult
 from .supervisor import AgentSelection, AgentSupervisor
 
@@ -16,6 +17,7 @@ __all__ = [
     "AgentGraphState",
     "AgentNotFoundError",
     "AgentRegistry",
+    "ResearchAgent",
     "AgentResult",
     "AgentSelection",
     "AgentSupervisor",
