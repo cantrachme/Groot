@@ -1,6 +1,7 @@
 from .agent import Agent
 from .capabilities import AgentToolAccessError, ToolPermission
 from .context import AgentContext
+from .coordinator import CoordinationResult, MultiAgentCoordinator
 from .data_analyst import DataAnalystAgent
 from .exceptions import AgentNotFoundError
 from .graph import AgentGraph, AgentGraphState
@@ -16,11 +17,13 @@ __all__ = [
     "Agent",
     "AgentCapabilityPolicy",
     "AgentContext",
+    "CoordinationResult",
     "DataAnalystAgent",
     "AgentGraph",
     "AgentGraphState",
     "AgentNotFoundError",
     "KnowledgeAgent",
+    "MultiAgentCoordinator",
     "OperationsAgent",
     "AgentRegistry",
     "ResearchAgent",
