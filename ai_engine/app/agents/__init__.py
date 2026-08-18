@@ -3,6 +3,7 @@ from .capabilities import AgentToolAccessError, ToolPermission
 from .context import AgentContext
 from .exceptions import AgentNotFoundError
 from .graph import AgentGraph, AgentGraphState
+from .knowledge import KnowledgeAgent
 from .policy import AgentCapabilityPolicy
 from .registry import AgentRegistry
 from .research import ResearchAgent
@@ -16,6 +17,7 @@ __all__ = [
     "AgentGraph",
     "AgentGraphState",
     "AgentNotFoundError",
+    "KnowledgeAgent",
     "AgentRegistry",
     "ResearchAgent",
     "AgentResult",

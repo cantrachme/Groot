@@ -9,6 +9,7 @@ from .context_assembly_service import (
     AssembledContext,
     ContextAssemblyService,
 )
+from .rag_document_service import RAGDocumentService
 from .retrieval_service import RetrievalService
 
 
@@ -29,8 +30,10 @@ class RAGService:
         embedding_config: EmbeddingConfig,
         retrieval_service: RetrievalService | None = None,
         context_assembly: ContextAssemblyService | None = None,
+        document_service: RAGDocumentService | None = None,
     ) -> None:
         self.llm_provider = llm_provider
+
         self.retrieval_service = (
             retrieval_service
             or RetrievalService(
@@ -38,16 +41,22 @@ class RAGService:
                 config=embedding_config,
             )
         )
+
         self.context_assembly = (
             context_assembly
             or ContextAssemblyService()
+        )
+
+        self.document_service = (
+            document_service
+            or RAGDocumentService()
         )
 
     def answer(
         self,
         db: Session,
         query: str,
-        chunk_texts: dict[int, str],
+        chunk_texts: dict[int, str] | None = None,
         top_k: int = 5,
     ) -> RAGResponse:
         if not query.strip():
@@ -60,6 +69,19 @@ class RAGService:
             query=query,
             top_k=top_k,
         )
+
+        if chunk_texts is None:
+            chunk_ids = [
+                result.embedding.document_chunk_id
+                for result in retrieval.results
+            ]
+
+            chunk_texts = (
+                self.document_service.get_chunk_texts(
+                    db=db,
+                    chunk_ids=chunk_ids,
+                )
+            )
 
         context = self.context_assembly.assemble(
             results=list(retrieval.results),
