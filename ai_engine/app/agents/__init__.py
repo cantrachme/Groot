@@ -5,6 +5,7 @@ from .data_analyst import DataAnalystAgent
 from .exceptions import AgentNotFoundError
 from .graph import AgentGraph, AgentGraphState
 from .knowledge import KnowledgeAgent
+from .operations import OperationsAgent
 from .policy import AgentCapabilityPolicy
 from .registry import AgentRegistry
 from .research import ResearchAgent
@@ -20,6 +21,7 @@ __all__ = [
     "AgentGraphState",
     "AgentNotFoundError",
     "KnowledgeAgent",
+    "OperationsAgent",
     "AgentRegistry",
     "ResearchAgent",
     "AgentResult",
