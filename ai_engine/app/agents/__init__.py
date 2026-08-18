@@ -1,6 +1,7 @@
 from .agent import Agent
 from .capabilities import AgentToolAccessError, ToolPermission
 from .context import AgentContext
+from .data_analyst import DataAnalystAgent
 from .exceptions import AgentNotFoundError
 from .graph import AgentGraph, AgentGraphState
 from .knowledge import KnowledgeAgent
@@ -14,6 +15,7 @@ __all__ = [
     "Agent",
     "AgentCapabilityPolicy",
     "AgentContext",
+    "DataAnalystAgent",
     "AgentGraph",
     "AgentGraphState",
     "AgentNotFoundError",
