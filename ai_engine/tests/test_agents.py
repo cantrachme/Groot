@@ -174,5 +174,109 @@ class AgentExecutionTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
+class AgentCapabilityPolicyTests(unittest.TestCase):
+    def test_allows_agent_authorized_tool(self):
+        from ai_engine.app.agents import (
+            AgentCapabilityPolicy,
+            ToolPermission,
+        )
+
+        policy = AgentCapabilityPolicy(
+            permissions=(
+                ToolPermission(
+                    tool_name="health_check",
+                    permission="system.read",
+                ),
+            ),
+        )
+
+        context = AgentContext(
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            request_id=uuid4(),
+            task="Check system health",
+            permissions=frozenset({"system.read"}),
+        )
+
+        policy.authorize(
+            agent=FakeAgent(),
+            tool_name="health_check",
+            context=context,
+        )
+
+    def test_rejects_tool_not_allowed_for_agent(self):
+        from ai_engine.app.agents import (
+            AgentCapabilityPolicy,
+            AgentToolAccessError,
+        )
+
+        policy = AgentCapabilityPolicy()
+
+        context = AgentContext(
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            request_id=uuid4(),
+            task="Attempt unauthorized tool",
+        )
+
+        with self.assertRaisesRegex(
+            AgentToolAccessError,
+            "is not allowed to use tool 'delete_customer'",
+        ):
+            policy.authorize(
+                agent=FakeAgent(),
+                tool_name="delete_customer",
+                context=context,
+            )
+
+    def test_rejects_missing_runtime_permission(self):
+        from ai_engine.app.agents import (
+            AgentCapabilityPolicy,
+            AgentToolAccessError,
+            ToolPermission,
+        )
+
+        policy = AgentCapabilityPolicy(
+            permissions=(
+                ToolPermission(
+                    tool_name="health_check",
+                    permission="system.read",
+                ),
+            ),
+        )
+
+        context = AgentContext(
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            request_id=uuid4(),
+            task="Check system health",
+            permissions=frozenset(),
+        )
+
+        with self.assertRaisesRegex(
+            AgentToolAccessError,
+            "lacks permission 'system.read'",
+        ):
+            policy.authorize(
+                agent=FakeAgent(),
+                tool_name="health_check",
+                context=context,
+            )
+
+    def test_allows_tool_without_registered_permission_requirement(self):
+        from ai_engine.app.agents import AgentCapabilityPolicy
+
+        policy = AgentCapabilityPolicy()
+
+        context = AgentContext(
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            request_id=uuid4(),
+            task="Check system health",
+        )
+
+        policy.authorize(
+            agent=FakeAgent(),
+            tool_name="health_check",
+            context=context,
+        )
