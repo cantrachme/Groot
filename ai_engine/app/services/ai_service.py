@@ -93,9 +93,26 @@ class AIService:
             chunk_ids=chunk_ids,
         )
 
-        return retrieval_service.answer(
-            db=db,
-            query=message,
+        context = retrieval_service.context_assembly.assemble(
+            results=list(retrieval.results),
             chunk_texts=chunk_texts,
-            top_k=top_k,
+        )
+
+        response = retrieval_service.llm_provider.generate(
+            system_prompt=(
+                "You are GROOT, an operational intelligence assistant. "
+                "Answer the user's question using the provided document "
+                "context. If the context does not contain enough "
+                "information to answer, say so instead of inventing facts."
+            ),
+            user_message=(
+                f"User question:\n{message}\n\n"
+                f"Document context:\n{context.text}"
+            ),
+        )
+
+        return RAGResponse(
+            query=message,
+            context=context,
+            response=response,
         )
