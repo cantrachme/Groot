@@ -13,16 +13,16 @@ class EmbeddingConfig:
     def from_env(cls) -> "EmbeddingConfig":
         provider = os.getenv(
             "EMBEDDING_PROVIDER",
-            "local",
+            "ollama",
         )
         model = os.getenv(
             "EMBEDDING_MODEL",
-            "default",
+            "nomic-embed-text:latest",
         )
         dimensions = int(
             os.getenv(
                 "EMBEDDING_DIMENSIONS",
-                "1536",
+                "768",
             )
         )
         batch_size = int(

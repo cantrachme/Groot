@@ -43,9 +43,9 @@ class EmbeddingConfigTests(unittest.TestCase):
 
         config = EmbeddingConfig.from_env()
 
-        self.assertEqual(config.provider, "local")
-        self.assertEqual(config.model, "default")
-        self.assertEqual(config.dimensions, 1536)
+        self.assertEqual(config.provider, "ollama")
+        self.assertEqual(config.model, "nomic-embed-text:latest")
+        self.assertEqual(config.dimensions, 768)
         self.assertEqual(config.batch_size, 32)
 
     def test_configuration_reads_environment(self):

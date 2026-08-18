@@ -5,6 +5,7 @@ from ..embeddings import (
     EmbeddingConfig,
     EmbeddingProvider,
     LocalEmbeddingProvider,
+    OllamaEmbeddingProvider,
 )
 from ..llm.provider import LLMProvider
 from ..llm.response import LLMResponse
@@ -33,10 +34,22 @@ class AIService:
         )
 
         self.embedding_config = embedding_config or EmbeddingConfig.from_env()
-        self.embedding_provider = (
-            embedding_provider
-            or LocalEmbeddingProvider(self.embedding_config)
-        )
+
+        if embedding_provider is not None:
+            self.embedding_provider = embedding_provider
+        elif self.embedding_config.provider == "ollama":
+            self.embedding_provider = OllamaEmbeddingProvider(
+                self.embedding_config,
+            )
+        elif self.embedding_config.provider == "local":
+            self.embedding_provider = LocalEmbeddingProvider(
+                self.embedding_config,
+            )
+        else:
+            raise ValueError(
+                "Unsupported embedding provider: "
+                f"{self.embedding_config.provider}"
+            )
         self.rag_document_service = RAGDocumentService()
 
     def handle(
