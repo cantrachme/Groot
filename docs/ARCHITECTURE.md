@@ -1,6 +1,6 @@
 # GROOT — Current architecture
 
-Verified: 2026-09-28 against `3c42b23` plus uncommitted knowledge-flow changes. Unit tests, PostgreSQL/pgvector integration tests, both migration systems and task registration were exercised. External providers and running workers were not exercised.
+Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
 
 ## Services and ownership
 
@@ -38,6 +38,20 @@ flowchart LR
 
 `AgentContext` and `AIRequestContext` accept integer identities for this trusted path and retain UUIDs for old prototype contracts. No UUID-to-integer coercion is attempted. Missing integer scope cannot access stored documents.
 
+## Trusted read-only tool layer
+
+`ai_engine/app/tools/read_only/` extends the existing `Tool` and `ToolRegistry`. Each trusted definition supplies a strict Pydantic argument model, `knowledge.read` permission, SQLAlchemy SELECT projection, tenant column and cursor field. The guarded base executor owns validation, authorization, organization filtering, row limit, result paging and rollback. The registry rejects non-read tools, non-SELECT definitions, unsupported permissions and overridden execution methods. Definitions are reviewed server code, not an arbitrary-code sandbox.
+
+`KnowledgeAgent.read_only_tools(context, credentials)` builds a **new registry per request**. Its two names are on that agent's existing allowlist. The factory can also bind another explicitly allowed agent. Credentials and the trusted `AgentContext` are constructor dependencies, never model-visible arguments. `build_tool_schemas` emits the typed schemas for these tools and retains the original empty schema for legacy tools. The existing Orchestrator can consume this registry unchanged; execution checks remain inside each tool even for direct calls. No data tools are registered in the global `/ai` registry, and `/rag` retains its existing RAG execution path.
+
+Each execution opens a dedicated session from the existing `SessionLocal`, sets `SET TRANSACTION READ ONLY` before querying, then reuses `authenticate_knowledge`. The live identity must match both bound integer IDs. Known membership roles (`admin`, `member`) grant only `knowledge.read` to the existing PermissionEngine; unknown roles fail closed. AgentCapabilityPolicy independently requires the agent allowlist and context permission using an explicit tool-permission mapping. The executor adds the organization predicate and bounded LIMIT, materializes the page, rolls back and closes the session on success or failure. It never commits or uses the caller's RAG session.
+
+- `list_documents`: ready extraction and embeddings; ascending ID; safe document metadata; `after_id` and `limit` (default 20, maximum 100).
+- `read_document_chunks`: same ready/tenant conditions through a document join; ascending chunk index; IDs/text/truncation flag; `document_id`, `after_index` and `limit` (default 5, maximum 20). Text projection uses PostgreSQL `left(text, 4000)`.
+- Both return `{items, next_cursor}` using one extra row to detect continuation. A chunk request for a foreign, missing or unready document returns an empty page without revealing which condition applied.
+
+Query-only SQLAlchemy table expressions read Django-owned tables without entering `Base.metadata`; no models, migrations, engines or dependencies changed. PostgreSQL enforces the read-only transaction even for a modifying CTE embedded in an otherwise valid SELECT (verified SQLSTATE `25006`). Connections return to normal transaction mode after rollback.
+
 ## Document processing and embeddings
 
 1. Existing `process_document` runs the extraction/normalization/chunk pipeline inside a Django transaction with a document-row lock.
@@ -70,4 +84,4 @@ GitHub is still the only concrete connector, with organization/source/external-I
 
 The root dotenv/process-environment precedence, URL escaping, dependency pins and preflight from the setup module remain. The shared embedding provider factory now serves both query and worker paths and honors `OLLAMA_BASE_URL`. Local hash vectors remain nonsemantic. Production secret/host settings still need hardening. No conversation store, durable workflow, MongoDB, MCP, CI, or container deployment was added.
 
-Verification: focused AI 55/55, focused Django 23/23, full AI 191/192 (baseline browser failure), full Django 107/107; migration checks passed. Ruff reports 16 baseline diagnostics and zero new ones. See [MEMORY.md](MEMORY.md) for commands and exact limits.
+Verification: new AI tools 11/11, focused AI selection 65/65, new PostgreSQL tool tests 12/12, full AI 202/203 (same baseline browser failure), full Django 119/119. Django/Alembic drift, offline migration SQL, compilation and diff checks passed. Ruff reports one baseline KnowledgeAgent diagnostic among changed files and zero new diagnostics. See [MEMORY.md](MEMORY.md) for commands and exact limits.

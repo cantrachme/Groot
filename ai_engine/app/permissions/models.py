@@ -26,7 +26,7 @@ class Role:
 class AuthorizationContext:
     """Authorization data for a user within an organization."""
 
-    user_id: UUID
-    organization_id: UUID
+    user_id: int | UUID
+    organization_id: int | UUID
     roles: tuple[Role, ...]
     agent_name: str

@@ -1,6 +1,6 @@
 # GROOT — Engineering rules
 
-Verified: 2026-09-28 against `3c42b23` plus the uncommitted knowledge-flow module. Enforced contracts below are backed by code/tests. Remaining requirements are identified separately.
+Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
 
 ## Preserve ownership and service boundaries
 
@@ -18,6 +18,17 @@ Verified: 2026-09-28 against `3c42b23` plus the uncommitted knowledge-flow modul
 - Keep SQL parameterized. Do not log bearer credentials, raw connection parameters or provider secrets. Frontend public configuration must not contain knowledge tokens or provider credentials.
 - Preserve evidence IDs/text/similarity. Reuse the single `RAGService.answer` composition. With no assembled authorized context, return an explicit insufficient-context answer without an LLM call.
 
+## Enforced trusted read-tool contracts
+
+- Build a private registry for each trusted request; bind credentials, agent and context on the server. Never put a credential or caller-controlled tenant/permission in tool arguments. Do not share a bound registry between users or register it globally for `/ai`.
+- Execute through `ReadOnlyTool`: strict Pydantic parameters reject extra fields, coercion, SQL, mutation operations and identity overrides. Definitions must use a SELECT and `knowledge.read`; the read registry rejects general tools and overridden executors.
+- Authenticate the token on **every execution**, including direct calls and the existing orchestrator path. The current membership must match both integer context IDs; UUIDs and booleans cannot stand in for database IDs.
+- Derive the knowledge grant only from current `admin`/`member` membership roles. Unknown roles fail closed. Require both PermissionEngine authorization and AgentCapabilityPolicy authorization with an explicit mapping; context permissions alone cannot grant data access.
+- Start a fresh session with `SET TRANSACTION READ ONLY` before authentication or data queries. Always roll back and close it; never commit or reuse a caller's pending-write session. A rejected database write must remain an error, not trigger a writable fallback.
+- Apply organization filtering centrally before LIMIT. Document tools additionally require ready extraction and embeddings. Foreign, missing and unready documents all produce an empty chunk page.
+- Keep document pages at 1–100 rows, chunk pages at 1–20 rows, and chunk text at 4,000 characters with `truncated`. Preserve chunk/document IDs and ordered continuation cursors. Exclude storage keys, error details, credentials and personal fields.
+- Extensions are trusted source code: use the guarded executor, scoped projections, bounded argument models and focused isolation/mutation tests. Do not accept model-supplied SQL or treat Python definitions as sandboxed untrusted plugins. New data domains require their own trusted grants; knowledge tokens confer no general business/action authority.
+
 ## Enforced document/vector lifecycle
 
 - Preserve extraction results and deterministic chunk ordering/replacement. Embedding readiness is separate from extraction readiness; only documents with both states ready may be retrieved.
@@ -33,13 +44,13 @@ Both Python services locate the root `.env` independently of launch directory; e
 
 ## Still required before further automation
 
-Trusted authorization must be applied when adding real tools, including direct orchestrator calls. Existing capability mappings and supplied-role permission contracts are not a complete execution boundary. High-impact actions need durable approval, actual tool execution, durable audit and independent outcome checks. Current executor/verifier/audit do not provide these guarantees. Frontend gestures are not approval.
+The read-only knowledge tools now enforce trusted authorization, including direct orchestrator calls. Other tools still need a trusted execution boundary; the generic capability and supplied-role contracts alone do not provide one. High-impact actions need durable approval, actual tool execution, durable audit and independent outcome checks. Current executor/verifier/audit do not provide these guarantees. Frontend gestures are not approval.
 
 ## Verification and working conventions
 
 - Implement only the current roadmap module. Add focused tests, run applicable regression suites and checks, then update PRD, ARCHITECTURE, RULES, DESIGN, Task and MEMORY before reporting. Do not commit/push unless requested.
-- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in the knowledge module. Baseline AI: 172/173; final: 191/192, with the same browser extraction failure. Baseline Django: 84/84; final: 107/107.
-- Database integration tests must target the temporary Django test database, apply both migration systems there, and clean up AI tables before Django teardown. The tests do not migrate the developer database.
+- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in this module. Baseline AI: 191/192; final: 202/203, with the same browser extraction failure. Baseline Django: 107/107; final: 119/119. New focused suites: AI 11/11 and PostgreSQL 12/12; relevant AI selection 65/65.
+- Database integration tests must target the temporary Django test database. Tests involving vectors apply both migration systems there and clean up AI tables before Django teardown; document-only tool tests use the Django tables. The tests do not migrate the developer database.
 - Distinguish real database verification from fake external providers. Live Groq/Ollama/GitHub, worker/broker execution and frontend builds were not verified here.
-- Ruff 0.16.9 on changed Python files reports 16 pre-existing diagnostics (15 in models, 1 in KnowledgeAgent); baseline comparison found zero new diagnostics. Preserve unrelated code instead of suppressing those diagnostics. No Python type-checker configuration exists; compilation is not a static type check.
+- Ruff 0.16.9 on this module’s changed Python files reports only the same pre-existing KnowledgeAgent implicit-string-concatenation diagnostic; HEAD comparison confirms zero new diagnostics. The earlier model diagnostics remain outside this module. Preserve unrelated code instead of suppressing those diagnostics. No Python type-checker configuration exists; compilation is not a static type check.
 - Before future frontend code changes, read `frontend/AGENTS.md` and the relevant bundled Next.js guide. The current module changes no frontend files.

@@ -8,7 +8,9 @@ def build_tool_schemas(registry: ToolRegistry) -> list[dict]:
             "function": {
                 "name": tool.name,
                 "description": tool.description,
-                "parameters": {
+                "parameters": tool.parameters_model.model_json_schema()
+                if getattr(tool, "parameters_model", None) is not None
+                else {
                     "type": "object",
                     "properties": {},
                     "additionalProperties": False,

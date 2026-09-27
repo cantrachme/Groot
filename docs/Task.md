@@ -1,6 +1,6 @@
 # GROOT — Implementation roadmap
 
-Verified: 2026-09-28. Starting HEAD was clean at `3c42b23 feat: make setup reproducible`. This module's changes are uncommitted. All six living docs and existing implementation were audited before edits; no commits or pushes were made.
+Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
 
 ## Completed foundations
 
@@ -13,7 +13,7 @@ Verified: 2026-09-28. Starting HEAD was clean at `3c42b23 feat: make setup repro
 - [x] Equaliator/evaluator, permission/approval/action/verification contracts and in-memory audit at their documented scaffold scope.
 - [x] **Make setup reproducible**, committed as `3c42b23`: dependency declarations, matching environment configuration, examples, pgvector preflight and setup instructions. Not redone in this module.
 
-## Completed module — Finish the knowledge flow (backend)
+## Completed module — Finish the knowledge flow (backend), committed `20008e6`
 
 - [x] Resolve knowledge-request identity using expiring, Django-owned membership tokens and active-user checks. Integer identities come from current membership, never a client UUID.
 - [x] Require authentication on `/rag` and reject identity fields in its body; retain `/ai`'s existing prototype contract.
@@ -26,32 +26,46 @@ Verified: 2026-09-28. Starting HEAD was clean at `3c42b23 feat: make setup repro
 
 This completes the backend module. It does not complete the frontend identity checklist from the earlier milestone: the frontend still calls `/ai` with random UUIDs. A user sign-in/knowledge client and upload API remain explicitly pending interface work, not claimed delivered here.
 
-## Verification record
+## Completed module — Trusted Read-Only Tools
 
-| Check | Baseline `3c42b23` | Final |
+- [x] Audit all six docs and the actual agent, permission, membership, RAG, database and tool implementation before edits.
+- [x] Add a small read-only Tool/ToolRegistry extension with typed schemas and guarded execution.
+- [x] Implement `list_documents` and `read_document_chunks` on existing ready knowledge records with bounded cursor pagination and chunk text.
+- [x] Reuse membership authentication, PermissionEngine and AgentCapabilityPolicy; verify both context IDs and recheck live access on every call.
+- [x] Enforce the organization predicate in the executor and PostgreSQL read-only transactions with rollback/close on all outcomes.
+- [x] Add KnowledgeAgent's request-local registry/allowlist integration and verify use through the existing Orchestrator. Keep the global registry health-only and preserve `/rag` behavior.
+- [x] Verify discovery, authorized reads, denied credentials/permissions, tenant isolation, strict argument rejection, unchanged data and database rejection of hidden writes.
+- [x] Run focused tests, broader regressions, lint, compilation and migration/diff checks; update all six docs. No existing tests modified, skipped or suppressed; no commit or push.
+
+**Status: complete and verified in the working tree.** This is a server-side read-tool layer. It adds no HTTP route, automatic tool selection, general business-data grant or placeholder specialist behavior.
+
+## Verification record — current module
+
+| Check | Baseline `20008e6` | Final |
 | --- | --- | --- |
-| AI unittest discovery | 173 run; 172 passed; 1 failed | 192 run; 191 passed; same 1 failed |
-| Django `test core` | 84 run; 84 passed | 107 run; 107 passed |
-| Focused AI selection | — | 55 run; 55 passed, including 19 new tests |
-| Focused Django knowledge module | — | 23 run; 23 passed, including 11 database integration tests |
-| Ruff 0.16.9 on changed Python files | 23 diagnostics on HEAD versions | 16 pre-existing diagnostics; zero new diagnostics |
+| AI unittest discovery | 192 run; 191 passed; 1 failed | 203 run; 202 passed; same 1 failed |
+| Django `test core` | 107 run; 107 passed | 119 run; 119 passed |
+| New read-tool AI tests | — | 11 run; 11 passed |
+| Focused AI regression selection | — | 65 run; 65 passed |
+| New PostgreSQL read-tool tests | — | 12 run; 12 passed |
+| Ruff 0.16.9 on changed Python files | 1 KnowledgeAgent diagnostic | Same 1; zero new diagnostics |
 
-Additional checks passed: Django system check (0 issues), migration drift (No changes detected), Python compilation, offline Alembic SQL, and `git diff --check`. Integration tests applied Django/Alembic migrations in a temporary database and verified Alembic downgrade → orphan seed → upgrade → drift check. The existing developer database was not migrated. No existing tests were edited, skipped or suppressed.
+Django system check: 0 issues. Migration drift: No changes detected. Existing real Alembic lifecycle/drift regression: passed, no new upgrade operations. Offline migration SQL, Python compilation and `git diff --check`: passed. No schema changes or migrations applied to the developer database. No Python static type checker is configured/installed; compilation is not a type check.
 
-The sole test failure is `test_browser_tool.BrowserToolTests.test_extracts_information`: a pre-existing string-versus-`BrowserResult` mismatch. Remaining lint diagnostics are 15 existing model warnings (duplicate field/mutable class lists) and one existing KnowledgeAgent string-concatenation diagnostic. SQLAlchemy deprecation and malformed-PDF diagnostics remain visible; HTTP tests also expose the installed Starlette/httpx deprecation. No static Python type checker is configured or installed in the project; compilation is not a substitute for it.
+The sole failing test remains `test_browser_tool.BrowserToolTests.test_extracts_information` (string versus `BrowserResult`), confirmed before edits. Existing SQLAlchemy/Starlette deprecations and malformed-PDF fixture diagnostics remain visible. No unrelated frontend or browser changes were made.
 
 ## Next unfinished module
 
-**NEXT — Add useful read-only tools.** Implement one real business-data query or research source behind an allowed tool and trusted authorization. Replace the relevant placeholder agent output with meaningful results or failures. Preserve the completed knowledge flow; do not extend the unauthenticated `/ai` demo to company data without a trusted execution boundary.
+**NEXT — Connect coordination and quality.** Connect explicit selection, evidence collection, Equaliator and synthesis. Implement supported contradiction/groundedness checks before advertising them. Reuse the trusted read-tool boundary and preserve existing knowledge behavior.
 
 Subsequent roadmap modules remain:
 
-1. [ ] **Connect coordination and quality:** explicit selection, evidence collection, Equaliator and synthesis; supported contradiction/groundedness checks before advertising them.
-2. [ ] **Connect controlled actions:** trusted risk classification, durable approvals/audit, actual tool execution and independent verification; align approval policy/executor semantics.
-3. [ ] **Finish browser work when needed:** choose a scoped use case/driver, implement navigation/extraction under the same control boundary and resolve the existing browser contract failure.
+1. [ ] **Connect controlled actions:** trusted risk classification, durable approvals/audit, actual tool execution and independent verification; align approval policy/executor semantics.
+2. [ ] **Finish browser work when needed:** choose a scoped use case/driver, implement navigation/extraction under the same control boundary and resolve the existing browser contract failure.
 
 ## Remaining limitations and later work
 
+- [ ] Connect the new server-side read registry to the authenticated coordination flow when that module is implemented. Definitions remain trusted code; only knowledge reads have grants. Chunk text is capped at 4,000 characters without text-offset continuation, and pagination has no snapshot guarantee during reprocessing.
 - [ ] Add frontend sign-in, authenticated knowledge requests and an evidence interface. Existing gestures remain presentation, not authorization.
 - [ ] Add a user-facing upload/ingestion API and token-management UI. Operators currently use Django admin, a credential command and existing processing tasks.
 - [ ] Add durable dispatch/recovery if required: current on-commit publication is not an outbox. Broker/process/worker loss can need manual retries. Holding document locks across provider calls serializes work per document.

@@ -1,6 +1,11 @@
+from collections.abc import Callable
+
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
+from ..db.database import SessionLocal
 from ..services.rag_service import RAGService
+from ..tools.registry import ToolRegistry
 from .agent import Agent
 from .context import AgentContext
 from .result import AgentResult
@@ -23,13 +28,30 @@ class KnowledgeAgent(Agent):
         "search_company_knowledge",
     )
 
-    allowed_tools = ()
+    allowed_tools = ("list_documents", "read_document_chunks")
 
     def __init__(
         self,
         rag_service: RAGService,
     ) -> None:
         self.rag_service = rag_service
+
+    def read_only_tools(
+        self,
+        context: AgentContext,
+        credentials: HTTPAuthorizationCredentials | None,
+        *,
+        session_factory: Callable[[], Session] = SessionLocal,
+    ) -> ToolRegistry:
+        """Bind tools for a trusted caller or the existing tool orchestrator."""
+        from ..tools.read_only import build_read_only_registry
+
+        return build_read_only_registry(
+            credentials=credentials,
+            agent=self,
+            context=context,
+            session_factory=session_factory,
+        )
 
     def execute(
         self,

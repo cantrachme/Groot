@@ -1,6 +1,6 @@
 # GROOT — Product requirements and current scope
 
-Verified: 2026-09-28 against clean starting HEAD `3c42b23` plus the uncommitted knowledge-flow module. All six docs and existing services were audited first. Verification used unit tests and real PostgreSQL/pgvector with fake external providers. No commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
 
 ## Purpose and users
 
@@ -14,6 +14,7 @@ GROOT aims to provide operational intelligence for growing startups: connect com
 | Company foundation | Django company models/admin, memberships, integrations, document content/chunks | Business administration and credential issuance remain operator-facing |
 | Knowledge | Authenticated `/rag` → KnowledgeAgent → tenant-scoped vectors/text → answer, evidence and citations | Operator-issued membership token; no upload API or frontend knowledge/sign-in flow |
 | Document lifecycle | Text/PDF processing; after-commit embedding task; atomic vector upsert; chunk deletion cascades vectors; separate embedding status | No durable dispatch outbox or automatic recovery of lost jobs; operators can retry |
+| Trusted read tools | Request-local registry with `list_documents` and `read_document_chunks`; live membership, permission and agent checks; database-enforced read-only transactions | Knowledge data only; server-side API, no new HTTP route or automatic tool selection |
 | Assistant | `/ai`, Groq and one tool-execution round | Existing UUID-based demo identity; only `health_check` registered; no company-data access through this path |
 | External data | Read-only GitHub connector and organization-scoped event ingestion | Other integrations remain enum choices |
 | Agents | Contracts, registry, policy, LangGraph wrapper, sequential coordinator; KnowledgeAgent now reached by `/rag` | ResearchAgent packages supplied state; DataAnalyst/Operations remain placeholders |
@@ -31,10 +32,18 @@ The authenticated document-to-evidence backend path is implemented and verified 
 
 The old unauthenticated `/rag` contract is intentionally replaced: a bearer token is required, and caller-supplied identity fields are rejected. `request_id`, `message`, optional `top_k` (1–50), and existing response fields remain; evidence/citations are added. `/ai` is unchanged. This is a backend capability, not a completed authenticated frontend workspace.
 
+## Completed module — Trusted Read-Only Tools
+
+KnowledgeAgent can build a private tool registry for a trusted caller or the existing tool orchestrator. Tools list ready documents and read ordered chunks using the current membership token. Every execution authenticates again, checks the bound integer identity, requires `knowledge.read` through the permission engine and agent policy, and adds the current organization predicate before limiting results.
+
+Document pages contain at most 100 records (default 20). Chunk pages contain at most 20 records (default 5), with each text capped at 4,000 characters and an explicit truncation flag. Both return a continuation cursor. Foreign, missing and unready documents produce the same empty chunk page. Storage keys, embedding errors, credentials and user details are not exposed.
+
+Strict schemas reject mutations, SQL, identity overrides and invalid arguments. PostgreSQL read-only transactions also reject a write hidden in a SELECT. Existing `/rag` answer behavior is preserved; `/ai` still has only the health tool. Tokens do not grant access to unrelated business records or actions.
+
 ## Verification and product limits
 
-- New focused coverage: 19 AI tests and 23 Django tests, including 11 real-database integration tests. The broader focused AI selection passed 55/55.
-- Full regression: AI **191 passed / 192 run**, retaining one pre-existing browser extraction failure; Django **107/107 passed**. Baseline: AI 172/173 and Django 84/84.
+- New read-tool coverage: **11/11 AI unit tests and 12/12 PostgreSQL integration tests passed**. Focused AI regression selection: **65/65 passed**.
+- Full regression: AI **202 passed / 203 run**, retaining the sole pre-existing browser extraction failure; Django **119/119 passed**. Current-module baseline: AI **191/192**, Django **107/107**. No new failures. Lint has only the unchanged KnowledgeAgent diagnostic among changed files.
 - Django migration creation/drift checks and real Alembic upgrade/downgrade/upgrade/drift checks passed in a temporary test database. No migrations were applied to the developer's existing database.
 - Live Groq/Ollama/GitHub calls, a running Redis worker, semantic answer correctness, PDF-through-LLM behavior and frontend runtime/build were not verified by this module. The end-to-end fixture used plain text and fake providers with real pgvector queries.
 - Tokens are issued by an operator; there is no user sign-in, token-management UI or upload API. Old documents require embedding after the new migrations. Lost dispatch/process crashes can require manual retry.
@@ -42,4 +51,4 @@ The old unauthenticated `/rag` contract is intentionally replaced: a bearer toke
 
 ## Next product increment
 
-The next roadmap module is **Add useful read-only tools**: one real business-data query or research source behind an allowed tool and trusted authorization, with meaningful agent results/failures. Keep the implemented knowledge flow and ownership boundaries intact. See [Task.md](Task.md).
+The next roadmap module is **Connect coordination and quality**: explicit agent selection, evidence collection, Equaliator and synthesis, with supported contradiction/groundedness checks before claiming them. Preserve the verified knowledge and read-tool boundaries. See [Task.md](Task.md).
