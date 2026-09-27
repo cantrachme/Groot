@@ -1,10 +1,23 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import VECTOR
-from sqlalchemy import DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.database import Base
+
+# Reference-only metadata: Django still owns and migrates this table.
+django_chunks = Table("core_documentchunk", MetaData(), Column("id", BigInteger))
 
 
 class DocumentChunkEmbedding(Base):
@@ -19,6 +32,7 @@ class DocumentChunkEmbedding(Base):
 
     document_chunk_id: Mapped[int] = mapped_column(
         Integer,
+        ForeignKey(django_chunks.c.id, name="embedding_chunk_fk", ondelete="CASCADE"),
         nullable=False,
     )
 

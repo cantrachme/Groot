@@ -62,6 +62,8 @@ class KnowledgeAgent(Agent):
             db=db,
             query=query,
             top_k=top_k,
+            **({"organization_id": context.organization_id}
+               if type(context.organization_id) is int else {}),
         )
 
         evidence = tuple(
@@ -91,5 +93,6 @@ class KnowledgeAgent(Agent):
             metadata={
                 "capabilities": self.capabilities,
                 "top_k": top_k,
+                "context": rag_response.context.text,
             },
         )

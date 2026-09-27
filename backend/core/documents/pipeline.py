@@ -1,3 +1,7 @@
+from functools import partial
+
+from django.db import transaction
+
 from core.models import Document, DocumentContent
 
 from .chunk_persistence import DocumentChunkPersistenceService
@@ -21,15 +25,21 @@ class DocumentIntelligencePipeline:
         self.chunker = chunker
         self.chunk_persistence = chunk_persistence
 
+    @transaction.atomic
     def process(
         self,
         document: Document,
         content: bytes,
     ) -> DocumentContent:
+        Document.objects.select_for_update().get(pk=document.pk)
+        document.embedding_status = Document.Status.PENDING
+        document.embedding_error = ""
         document.status = Document.Status.PROCESSING
         document.save(
             update_fields=[
                 "status",
+                "embedding_status",
+                "embedding_error",
                 "updated_at",
             ],
         )
@@ -49,9 +59,11 @@ class DocumentIntelligencePipeline:
             )
 
             document.status = Document.Status.FAILED
+            document.embedding_status = Document.Status.FAILED
             document.save(
                 update_fields=[
                     "status",
+                    "embedding_status",
                     "updated_at",
                 ],
             )
@@ -87,4 +99,6 @@ class DocumentIntelligencePipeline:
             ],
         )
 
+        from .tasks import enqueue_document_embeddings
+        transaction.on_commit(partial(enqueue_document_embeddings, document.pk))
         return document_content

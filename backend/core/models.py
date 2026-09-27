@@ -65,6 +65,15 @@ class Membership(models.Model):
     def __str__(self):
         return f"{self.user.username} @ {self.organization.name} ({self.role})"
 
+class KnowledgeAccessToken(models.Model):
+    """Revocable, organization-bound access; only a digest is persisted."""
+
+    digest = models.CharField(max_length=64, unique=True)
+    membership = models.ForeignKey(Membership, on_delete=models.CASCADE)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class Team(models.Model):
     """Represents a team within an organization."""
 
@@ -391,6 +400,12 @@ class Document(models.Model):
         choices=Status.choices,
         default=Status.PENDING,
     )
+    embedding_status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    embedding_error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

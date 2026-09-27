@@ -1,70 +1,90 @@
 # GROOT — Compact project memory
 
-Verified: 2026-09-28. Clean starting HEAD was `231e3027fc4299dd94ed75451dc45dccf4b2dbc8`; setup changes below are uncommitted. All six living docs and service sources were audited before implementation. Do not rely on the older KT or the docs' former `06c15a9` snapshot. No commits or pushes were made.
+Verified: 2026-09-28. Starting HEAD was clean at `3c42b23 feat: make setup reproducible`. All six docs and existing code were audited. The knowledge-flow changes described below are uncommitted; no commit or push was made. Use this verified state over the older KT or earlier module numbers.
 
-## Purpose and architecture
+## Completed module and current architecture
 
-Operational intelligence for growing startups: investigate company information, explain findings, recommend, then eventually approve/act/verify. Current product is a development prototype.
+**Finish the knowledge flow (backend)** is complete: membership-authenticated `/rag` → existing KnowledgeAgent → shared RAGService → organization-scoped pgvector/text lookup → answer with evidence/citations. Django processing now dispatches retry-safe embeddings after commit; a document lock and cascading chunk foreign key coordinate reprocessing/deletion. The previous setup module remains committed in `3c42b23`.
 
-- `frontend/`: Next.js/React/TypeScript orb, browser speech and MediaPipe gestures. Calls FastAPI `/ai` directly; creates random user/organization UUIDs. Application code was not changed.
-- `backend/`: Django business models/admin, GitHub integration/event ingestion, text/PDF document processing, Celery/Redis configuration. Only `/admin/` is routed.
-- `ai_engine/`: FastAPI `/health`, `/ai`, `/rag`; Groq provider/tool loop; SQLAlchemy/Alembic pgvector RAG; standalone agents and control components.
-- Shared PostgreSQL: Django owns business/document/chunk tables; AI owns `document_chunk_embeddings` and reads `core_documentchunk` directly. Reuse `Base`, `SessionLocal`, `get_db`; preserve Alembic's table ownership filter. No schemas or migrations changed in the setup module.
+Ownership is unchanged: Django owns users, memberships, company/document data and new knowledge credentials/status fields. SQLAlchemy/Alembic own vectors using existing engine/Base/SessionLocal/get_db. AI reads Django tables with parameterized SQL. Celery invokes existing AI embedding services; no new database engine or workflow framework was added. Frontend remains the voice/orb/gesture prototype calling `/ai`.
 
-## Completed module — Make setup reproducible
+## Important changed files
 
-This was the first numbered unfinished step in `docs/Task.md`. It is complete at the scope of dependency declarations, environment examples, database alignment, and pgvector prerequisite verification.
+### Identity and HTTP
 
-Files and decisions:
+- `backend/core/models.py`, `backend/core/migrations/0013_knowledge_flow.py`: `KnowledgeAccessToken` with unique digest, membership and expiry; `Document.embedding_status` and `embedding_error`.
+- `backend/core/knowledge_tokens.py`, `backend/core/management/commands/issue_knowledge_token.py`, plus the two management package initializers: operator issuance for an existing active membership, 32 random bytes, SHA-256 stored digest, 1–168 hour lifetime (default 24).
+- `ai_engine/app/core/authentication.py`: bearer token digest lookup joined to current membership and active user; expired/unknown/revoked/inactive-user credentials return 401.
+- `ai_engine/app/main.py`: authenticated synchronous `/rag` reaches KnowledgeAgent; request accepts request UUID/message/top_k only; preserves query/context/response and adds evidence/citations. Message is nonblank and <=12,000 characters; top_k is 1–50. Identity fields are rejected. `/ai` and `/health` retain their existing contracts.
+- `ai_engine/app/core/context.py`, `ai_engine/app/agents/context.py`, `ai_engine/app/agents/knowledge.py`: integer identities for the trusted flow, UUID compatibility for prototype contracts, scope propagation and context/evidence preservation.
 
-- `backend/requirements.txt`: added `langchain-core==1.5.6`, `langchain-groq==1.1.3`, `langgraph==1.2.11`. Replaced Groq `1.6.0` with the installed/tested `0.37.1` because the declared LangChain adapter requires Groq `>=0.30,<1`. Other pins were preserved.
-- `backend/config/settings_base.py`: loads repository-root `.env`, with existing process variables taking precedence; PostgreSQL and Celery URLs now read environment values. Existing local defaults remain.
-- `ai_engine/app/db/database.py`: resolves the same root `.env`, uses matching PostgreSQL defaults and `URL.create` for credential escaping. `DATABASE_URL` remains a string; existing engine/session/Base remain.
-- `ai_engine/app/db/check.py`: read-only CLI for database connectivity and enabled pgvector version. Distinguishes available-but-disabled extension from missing server installation, returns exit code 1 with guidance, and avoids echoing driver connection details. No extension installation or DDL.
-- `.env.example`: added Groq/GitHub credentials and Redis broker/result URLs. Existing `.env` was not edited.
-- `frontend/.env.example`, `frontend/.gitignore`: public AI URL example for `frontend/.env.local`; example exempted from the nested ignore rule. Relevant bundled Next.js environment guide was read. No frontend feature/fix was implemented.
-- `README.md`: local setup, operator extension provisioning, migrations, service commands and test instructions.
-- `ai_engine/tests/test_setup.py`: 11 new tests; all existing tests left unchanged.
-- All six living docs updated after implementation and regression checks.
+### Retrieval and embeddings
 
-Configuration contract: both services read `POSTGRES_DB/USER/PASSWORD/HOST/PORT`; defaults are `groot_db`, `rachit`, empty password, `localhost`, `5432`. Root dotenv loading is independent of launch directory and does not override exported values. Celery defaults remain local Redis databases 0 and 1. Frontend loads its own environment file; backend secrets never belong in public variables.
+- `ai_engine/app/services/tenant_scope.py`, `similarity_search_service.py`, `rag_document_service.py`, `retrieval_service.py`, `rag_service.py`: validate/propagate scope, enforce organization and extraction/embedding readiness before top-k and again in text lookup; absent scope returns no stored data. Scoped calls reload authorized text rather than trusting supplied maps. Empty assembled context returns a fixed insufficient-context response without an LLM call.
+- `ai_engine/app/services/ai_service.py`: delegates answer composition to RAGService and uses the shared embedding factory. Removed duplicate RAG assembly/imports.
+- `ai_engine/app/embeddings/factory.py`: shared local/Ollama construction for query and job paths, honoring `OLLAMA_BASE_URL`.
+- `ai_engine/app/services/embedding_service.py`, `chunk_embedding_service.py`: reuse batch validation; add transactional upsert for workflow retries. Unique key remains chunk/model; updates preserve record ID/creation time and replace vector/dimensions/update time. Existing low-level insert methods remain available; workflow uses upsert.
+- `ai_engine/app/models/embedding.py`, `ai_engine/alembic/versions/b17d32a0e901_embedding_chunk_lifecycle.py`: cleanup legacy orphan vectors and add `embedding_chunk_fk ON DELETE CASCADE`. Reference-only Django chunk metadata is separate from AI Base metadata.
+- `ai_engine/alembic/env.py`: uses the model's existing Base metadata and accepts an explicit connection for integration migration tests; ownership filter remains intact.
 
-## Verified tests and checks
+### Processing and registration
 
-Commands below are from the repository root unless specified. Existing interpreter: `.venv/bin/python` (3.14.4). Fresh installation used a temporary venv with the same Python version, without modifying the project venv.
+- `backend/core/documents/pipeline.py`, `chunk_persistence.py`: atomic processing/replacement under the document lock; invalidate embeddings; publish only after successful commit.
+- `backend/core/documents/tasks.py`: post-commit dispatch, visible broker failure status, `embed_document` task, current-chunk loading under document lock, existing SessionLocal handoff, ready/failed state and three automatic retries with backoff for runtime/provider/SQLAlchemy exceptions. Validation/configuration errors are recorded and re-raised without automatic retry.
+- `backend/core/tasks.py`, `backend/config/celery.py`: expose nested tasks and defer autodiscovery until Django initializes. Worker-style loader test verifies health, ingestion, processing and embedding registrations.
+- `backend/config/settings_base.py`: makes root AI modules importable when a worker starts from `backend/`; existing environment/dependency setup is retained.
+- `README.md`: migration order, token issuance and `/rag` request contract, ingestion/retry instructions and test prerequisites.
+- All six living docs updated after verification. No frontend files or existing test files were changed.
 
-| Check | Exact result |
-| --- | --- |
-| Baseline: `.venv/bin/python -m unittest discover -s ai_engine/tests` | 162 run; 161 passed; 1 failure |
-| Baseline: `../.venv/bin/python manage.py test core --noinput` from `backend/` | 84 run; 84 passed |
-| Focused: `.venv/bin/python -m unittest ai_engine.tests.test_setup ai_engine.tests.test_database ai_engine.tests.test_models ai_engine.tests.test_langchain_groq ai_engine.tests.test_agent_graph ai_engine.tests.test_ai_engine` | 27 run; 27 passed, including all 11 new tests |
-| Final AI discovery, existing and fresh environments | Each: 173 run; 172 passed; same 1 failure |
-| Final Django `manage.py test core --noinput`, existing and fresh environments | Each: 84 run; 84 passed on PostgreSQL |
-| Fresh venv `python -m pip install -r backend/requirements.txt` then `python -m pip check` | Installation succeeded; no broken requirements |
-| `.venv/bin/python -m ai_engine.app.db.check` | PostgreSQL connected; pgvector 0.8.6 enabled |
-| `.venv/bin/python backend/manage.py check` | 0 issues, 0 silenced |
-| `.venv/bin/python backend/manage.py makemigrations --check --dry-run` | No changes detected |
-| Alembic offline `upgrade head --sql` with special-character credentials | Passed as part of focused tests; embedding table SQL generated |
-| Fresh Django/Celery process task registry inspection | Only `core.tasks.health_check_task` auto-registered |
-| `git diff --check` | Passed |
+### New tests
 
-The sole test failure is pre-existing: `test_browser_tool.BrowserToolTests.test_extracts_information` expects `"page heading"`; `BrowserTool.extract_information` returns `BrowserResult(action='extract_information', data={'query': 'page heading'})`. No regressions were observed. Browser implementation/tests are tracked in the baseline, not untracked local work.
+- `ai_engine/tests/test_knowledge_flow.py`: 19 tests for credential handling, scope, SQL/forwarding, composition, evidence HTTP responses, body spoofing/validation, empty context, atomic upsert validation/errors and shared provider configuration.
+- `backend/core/test_knowledge_flow.py`: 23 tests (12 token/handoff tests and 11 PostgreSQL integration tests). Integration uses Django/Alembic tables and real pgvector, with fake external embedding/LLM providers.
 
-Initial sandbox denial of PostgreSQL access and package-index DNS access was resolved with permitted access. These are not test regressions. Existing `declarative_base` deprecation warnings and expected malformed-PDF fixture diagnostics were not suppressed. The existing environment has pypdf 6.16.1; the fresh environment used the unchanged manifest pin 6.1.2, and both passed Django tests.
+## Decisions and operational contracts
 
-## Implementation reality and remaining gaps
+- Authentication is knowledge-specific. Token membership supplies integer user/organization IDs and role; all current membership roles may read organization knowledge. This does not authorize actions or make the unauthenticated `/ai` prototype a trusted business interface.
+- `/rag` intentionally replaces the previous unauthenticated UUID-identity contract. Missing credentials return 401; body identity fields return 422 after authentication. Existing response fields remain and evidence/citations are additive.
+- The document lock spans embedding provider work and the AI commit. Reprocessing uses the same lock; duplicate/delayed jobs read current chunks. Queries require both extraction and embeddings ready. Vectors commit before Django readiness; a failed final status commit may require a safe retry.
+- Chunk/document deletion cascades vectors. The Alembic upgrade deletes legacy orphans before creating the constraint; downgrade cannot restore deleted orphan rows. Apply Django migrations before Alembic. Existing documents become pending and require an embedding job.
+- `process_document` keeps its extraction result semantics, independently of embedding status. A broker dispatch failure is recorded on the document. There is no durable outbox; process/worker loss or a missed publication can leave pending work requiring manual retry.
+- Production configuration, dependencies, architecture and unrelated agent/browser features were not redesigned. Native providers/services are reused. No migrations were applied to the developer's existing database; only the temporary test database was migrated.
 
-- Agent contracts/registry/capability policy already exist: do not restart historical Module 09.
-- LangChain Groq adapter exists; default AI uses direct Groq. LangGraph wraps one node; coordination is sequential and explicitly selected. Neither is wired into `/ai`.
-- KnowledgeAgent calls RAG. ResearchAgent packages supplied state. DataAnalyst/Operations agents are placeholders. All currently declare empty allowed-tool lists.
-- Equaliator is heuristic; contradiction detection is empty. Evaluator reports result fields. Executor returns success without invoking a tool; verifier copies success. Audit is memory-only. Default tool registry contains only `health_check`.
-- Identity is unresolved: Django IDs are integers, AI IDs are UUIDs; no authentication connects them. RAG lacks organization filtering. Resolve both before real tenant use.
-- Document processing does not enqueue embeddings. Chunk replacement can leave stale vectors; embedding writes insert rather than upsert. Preserve event idempotency and deterministic chunk behavior.
-- `AIService.handle_rag` and `RAGService.answer` duplicate answer composition. Reuse existing retrieval services when consolidating.
-- Nested ingestion/document tasks are not auto-registered in a fresh Celery process. No recurring ingestion, durable workflows, MongoDB, MCP, CI, or container deployment exists.
-- Ollama defaults remain `nomic-embed-text:latest`, 768 dimensions, batch size 32. Local embeddings are deterministic hashes, not semantic vectors.
-- Setup verification does not cover live Groq/GitHub/Ollama calls, running Redis workers, frontend lint/build, production deployment, or a full fresh PostgreSQL provisioning cycle. The explicit preflight is not a runtime readiness gate. Database owners still install/enable pgvector; requirements are not a full transitive lockfile. Development secret/host defaults remain unsuitable for production.
+## Exact verification results and commands
 
-## Next module
+Python: existing `.venv/bin/python` (3.14.4). Commands below are from repository root unless stated. All existing tests were preserved; none skipped/suppressed.
 
-**Finish the knowledge flow**, starting with authenticated membership/identity and organization-scoped retrieval. Then consolidate RAG composition, register nested tasks, and implement the processing-to-embedding handoff with retry/upsert and stale-vector cleanup; verify extraction → embeddings → scoped answer with evidence. These are pending tasks, not current behavior. Keep the existing architecture and avoid unrelated frontend/browser work. See [Task.md](Task.md).
+| Check | Command / method | Exact result |
+| --- | --- | --- |
+| Baseline AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 173 run; 172 passed; 1 failed |
+| Baseline Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 84 run; 84 passed |
+| New AI tests | `.venv/bin/python -m unittest ai_engine.tests.test_knowledge_flow` | 19 run; 19 passed |
+| Focused AI + impacted existing modules | `.venv/bin/python -m unittest ai_engine.tests.test_knowledge_flow ai_engine.tests.test_rag_service ai_engine.tests.test_retrieval_service ai_engine.tests.test_similarity_search_service ai_engine.tests.test_knowledge_agent ai_engine.tests.test_embedding_service ai_engine.tests.test_setup` | 55 run; 55 passed |
+| Focused Django | `../.venv/bin/python manage.py test core.test_knowledge_flow --noinput` from `backend/` | 23 run; 23 passed |
+| Final full AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 192 run; 191 passed; same 1 failure |
+| Final full Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 107 run; 107 passed |
+| Django checks | `.venv/bin/python backend/manage.py check` | 0 issues, 0 silenced |
+| Django migration drift | `.venv/bin/python backend/manage.py makemigrations --check --dry-run` | No changes detected |
+| Python compilation | `.venv/bin/python -m compileall -q ai_engine/app ai_engine/alembic backend/core backend/config` | Passed |
+| Offline Alembic | `.venv/bin/python -m alembic -c ai_engine/alembic.ini upgrade head --sql` | Both migrations generated successfully |
+| Live migrations in temporary test DB | Django test runner + Alembic upgrade; lifecycle test downgrade → orphan insertion → upgrade → `command.check` | Passed; orphan removed; Django tables preserved; no new upgrade operations detected |
+| Lint | Ruff 0.16.9 default `check` on all changed/new Python files, compared with HEAD source using `--stdin-filename` | HEAD: 23 diagnostics; final: 16 pre-existing; **0 new** |
+| Patch formatting | `git diff --check` | Passed |
+
+Ruff was installed only in `/tmp/groot-knowledge-lint`; project dependencies and the existing virtual environment were not changed. No project Python type-checker configuration or installed mypy/pyright was found; no static type check is claimed. Frontend lint/build was not relevant because no frontend files changed.
+
+The integration tests verify a higher-ranked foreign vector cannot reach another organization's top-k/context/evidence; expired, removed-membership and inactive-user credentials fail; retries retain vector row IDs; partial vector writes roll back; reprocessing/deletion/extraction failure remove obsolete vectors; unscoped services expose no stored data; and a second DB connection cannot acquire a document lock during embedding.
+
+## Pre-existing failures and visible diagnostics
+
+- `test_browser_tool.BrowserToolTests.test_extracts_information` still expects `"page heading"` but receives `BrowserResult(action='extract_information', data={'query': 'page heading'})`. Present before edits; unchanged. Browser automation remains a stub.
+- Ruff baseline diagnostics retained: `backend/core/models.py` has 15 existing diagnostics (duplicate `Organization.created_at` and mutable class lists); `ai_engine/app/agents/knowledge.py` has one existing implicit-string-concatenation diagnostic. No rules were disabled and no noqa suppressions were added.
+- Existing SQLAlchemy declarative-base warnings and expected malformed-PDF fixture diagnostics remain. New HTTP tests expose the installed Starlette/httpx deprecation; it is not a failing test. Initial sandbox database access denial was resolved through permitted access.
+
+## Remaining limitations / next module
+
+The knowledge backend is verified with plain-text fixtures and fake external providers; live Groq/Ollama/GitHub calls, semantic answer correctness, PDF-through-LLM execution, live Redis worker delivery and production deployment were not tested. Frontend sign-in/knowledge requests, upload API and token-management UI remain absent. Tokens are operator-issued and expire; existing documents need embedding after migration. Lost dispatch/jobs need operator retry. Per-document locks remain held during provider work. The context assembler's nominal character budget, local nonsemantic embeddings and development production-settings gaps remain.
+
+General coordination is still standalone/sequential. ResearchAgent packages state; DataAnalyst/Operations are placeholders. Equaliator has no contradiction implementation; actions/verification are scaffolds and audit is memory-only. No persistent conversations/workflows, CI, MongoDB or MCP was added.
+
+**NEXT: Add useful read-only tools** — a real business-data query or research source under trusted authorization and allowed tools, with meaningful agent results/failures. Preserve knowledge isolation and lifecycle guarantees. See [Task.md](Task.md).

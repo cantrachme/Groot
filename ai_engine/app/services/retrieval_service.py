@@ -7,6 +7,7 @@ from .similarity_search_service import (
     SimilaritySearchResult,
     SimilaritySearchService,
 )
+from .tenant_scope import tenant_options
 
 
 @dataclass(frozen=True)
@@ -36,12 +37,14 @@ class RetrievalService:
         db: Session,
         query: str,
         top_k: int = 5,
+        organization_id: int | None = None,
     ) -> RetrievalResult:
         if not query.strip():
             raise ValueError(
                 "query must not be empty."
             )
 
+        scope = tenant_options(organization_id)
         query_embedding = self.provider.embed_text(query)
 
         results = self.similarity_search.search(
@@ -50,6 +53,7 @@ class RetrievalService:
             model=self.config.model,
             dimensions=self.config.dimensions,
             top_k=top_k,
+            **scope,
         )
 
         return RetrievalResult(

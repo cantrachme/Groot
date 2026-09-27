@@ -11,6 +11,7 @@ from .context_assembly_service import (
 )
 from .rag_document_service import RAGDocumentService
 from .retrieval_service import RetrievalService
+from .tenant_scope import tenant_options
 
 
 @dataclass(frozen=True)
@@ -58,19 +59,23 @@ class RAGService:
         query: str,
         chunk_texts: dict[int, str] | None = None,
         top_k: int = 5,
+        organization_id: int | None = None,
     ) -> RAGResponse:
         if not query.strip():
             raise ValueError(
                 "query must not be empty."
             )
 
+        scope = tenant_options(organization_id)
         retrieval = self.retrieval_service.retrieve(
             db=db,
             query=query,
             top_k=top_k,
+            **scope,
         )
 
-        if chunk_texts is None:
+        # Scoped requests always reload authorized text; supplied maps cannot bypass scope.
+        if chunk_texts is None or scope:
             chunk_ids = [
                 result.embedding.document_chunk_id
                 for result in retrieval.results
@@ -80,6 +85,7 @@ class RAGService:
                 self.document_service.get_chunk_texts(
                     db=db,
                     chunk_ids=chunk_ids,
+                    **scope,
                 )
             )
 
@@ -87,6 +93,15 @@ class RAGService:
             results=list(retrieval.results),
             chunk_texts=chunk_texts,
         )
+
+        if not context.items:
+            return RAGResponse(
+                query=query, context=context,
+                response=LLMResponse(
+                    text="There is not enough document context to answer this question.",
+                    tool_calls=(),
+                ),
+            )
 
         response = self.llm_provider.generate(
             system_prompt=(

@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from ..models import DocumentChunkEmbedding
+from .tenant_scope import tenant_options
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class SimilaritySearchService:
         model: str,
         dimensions: int,
         top_k: int = 5,
+        organization_id: int | None = None,
     ) -> list[SimilaritySearchResult]:
         if dimensions <= 0:
             raise ValueError(
@@ -57,6 +59,20 @@ class SimilaritySearchService:
             .order_by(distance)
             .limit(top_k)
         )
+
+        scope = tenant_options(organization_id)
+        if scope:
+            statement = statement.where(text("""
+                EXISTS (
+                    SELECT 1 FROM core_documentchunk c
+                    JOIN core_document d ON d.id = c.document_id
+                    WHERE c.id = document_chunk_embeddings.document_chunk_id
+                      AND d.organization_id = :organization_id
+                      AND d.status = 'ready' AND d.embedding_status = 'ready'
+                )
+            """).bindparams(**scope))
+        else:
+            statement = statement.where(text("FALSE"))
 
         rows = db.execute(statement).all()
 

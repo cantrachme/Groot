@@ -1,65 +1,53 @@
 # GROOT — Design decisions and implementation patterns
 
-Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus uncommitted setup changes. This document describes observed design and its consequences. Python tests and setup checks were run; frontend design remains source-reviewed only.
+Verified: 2026-09-28 against `3c42b23` plus uncommitted knowledge-flow changes. The design below describes implemented behavior and explicitly separates remaining work.
 
-## System philosophy
+## Existing structure retained
 
-GROOT separates company records from AI processing: Django provides the business foundation, while FastAPI coordinates model/tool and retrieval operations. Shared PostgreSQL provides a practical bridge. This keeps AI table ownership small, but direct reads of `core_documentchunk` couple retrieval to Django's schema and database configuration.
+Django owns company records; FastAPI coordinates provider/tool and knowledge operations. Shared PostgreSQL connects Django chunks with AI vectors. Native contracts, narrow injectable services, registry boundaries and separate orchestration/quality/control responsibilities remain. Setup configuration and dependency work was already committed in `3c42b23` and was not repeated.
 
-The historical product loop is understand → investigate → explain → recommend → approve → act → verify. Today these stages exist at different maturity levels. Building one complete flow through existing components is more useful than adding more agent names.
+## Implemented knowledge design
 
-## Module responsibilities
+### Membership-bound access
 
-| Module | Design and current limits |
-| --- | --- |
-| Django `integrations/` | Connector contract, registry, credential boundary, provider-specific normalization; only GitHub implemented |
-| Django `ingestion/` | Coordinates fetching and persistence separately; stable external identities allow repeat ingestion |
-| Django `documents/` | Small extractor/normalizer/chunker/persistence services assembled into a pipeline; text and PDF extraction |
-| AI `llm/`, `tools/` | Provider-neutral response/tool-call contracts; registry/schema generation separates capabilities from provider APIs |
-| AI `services/` | Embedding generation, similarity search, chunk loading, context assembly, answer generation; dependencies can be injected |
-| AI `agents/` | Frozen dataclass context/results, named registry, explicit selection, single-node graph, sequential execution |
-| AI `equaliator/`, `evaluation/` | Cross-result assessment versus single-result metrics; currently deterministic heuristics |
-| AI `permissions/`, `approvals/`, `actions/`, `verification/`, `audit/` | Separate authorization, risk, execution, outcome, and event contracts; not yet an integrated control boundary |
+An operator issues an opaque token for an existing active user's membership. The token carries no client-editable identity claims; its SHA-256 digest maps to a Django membership row with an expiry. Each request checks the current membership and active-user state, so removing membership, deleting the token or disabling the user denies subsequent requests. The token is limited to organization knowledge reads.
 
-Dataclass freezing is shallow: `state`, result `data`, and metadata may contain mutable objects. `AgentContext` has no conversation ID today and KnowledgeAgent expects a SQLAlchemy session in `state['db']`. Do not assume these objects can already be serialized for resumed workflows.
+This establishes a backend authentication boundary without replacing the application's identity model or adding a login UI. Integer identities flow through existing context dataclasses; the old UUID-based `/ai` prototype remains separate and cannot use its random UUIDs to retrieve company data. `/rag` intentionally rejects its former unauthenticated identity payload.
 
-## Implemented setup design
+### Evidence flow
 
-The setup module keeps each service's existing entry points and database ownership. Django and AI configuration both locate the root `.env` relative to their source files and use the same `POSTGRES_*` names/defaults. Exported values win over dotenv values. This avoids a new cross-service configuration package while making consistency explicit and testable. Celery URLs follow the same override convention with the existing local defaults.
+The authenticated route invokes the existing KnowledgeAgent. Organization scope travels through RAGService and RetrievalService into the SQL query, then into an independent text lookup. Both queries also exclude documents whose extraction or embeddings are not ready. Filtering happens before top-k, so another organization's high-scoring vectors cannot displace authorized results.
 
-SQLAlchemy assembles and escapes URL components through `URL.create`; the public `DATABASE_URL` remains a string for Alembic. The engine, session factory, Base and migration ownership do not change. Tests exercise special characters in credentials and generate offline migration SQL through the existing Alembic path.
+`AIService.handle_rag` delegates answer composition to RAGService instead of duplicating it. Scoped callers cannot inject a text map around the database check. Missing scope returns no stored data. An empty assembled context returns a fixed insufficient-context answer without an LLM call; nonempty context uses the existing provider prompt. The response includes the actual context items and chunk citation IDs. The existing character-budget assembler is unchanged, including its nominal rather than tokenizer-based budget.
 
-The pgvector checker is an explicit read-only setup command. It returns an enabled version, or explains whether the operator must install the server extension or enable it in the target database. Connection failures return a generic diagnostic without echoing driver parameters. It does not provision infrastructure or change the static HTTP health response.
+### Processing, readiness and retries
 
-Root and frontend environment examples are separate because Next.js reads its own project directory. The frontend example contains only the public AI service URL; provider secrets remain on the backend. README documents setup, extension prerequisites, service commands and tests.
+Extraction still produces normalized text, deterministic ordered chunks and its existing READY/FAILED state. A separate `embedding_status` and generic `embedding_error` distinguish searchable documents from documents that have only been extracted. Successful processing registers dispatch after transaction commit. Rollbacks and failed extraction do not enqueue work.
 
-Validation: 11 new tests; focused selection 27/27 passed; both existing and fresh Python environments report Django 84/84 and AI 172/173 with the same pre-existing browser failure. Live pgvector check passed at version 0.8.6. External services, full fresh database provisioning and frontend builds remain outside this verification.
+The processing pipeline, direct chunk replacement and embedding task use the same document-row lock. The embedding task loads current chunks while holding that lock, uses the existing AI session, and marks readiness only after the vector transaction commits. This prevents stale queued jobs from writing vectors for replaced chunks. Holding a lock during provider calls trades per-document concurrency for a simple, verified consistency contract.
 
-## Knowledge design
+The vector service validates all batches before performing upserts and rolls back the whole write transaction on failure. Upsert preserves the chunk/model row identity and creation time. The legacy low-level insert methods remain available for compatibility; the document workflow uses upserts. Retryable provider/database exceptions get three automatic retries with backoff; invalid configuration/vector responses and dispatch failures need operator correction/retry.
 
-Document content and ordered chunks remain Django-owned; vectors are AI-owned and identified by chunk ID/model. Query vectors are compared by cosine distance, then context assembly selects available nonblank chunk text and formats chunk IDs/similarity for the LLM. Context assembly has a nominal 12,000-character budget, not a tokenizer-based budget.
+Alembic owns the cascading foreign key to Django chunks. Reference-only metadata avoids transferring Django table ownership to SQLAlchemy. The migration removes historical orphans before creating the constraint; chunk/document deletion and failed/successful reprocessing then remove obsolete vectors automatically.
 
-This design supports testing each stage independently. Its next integration needs are tenant scoping, a processing-to-embedding handoff, retry/reprocessing semantics, and cleanup of stale vectors. Preserve the existing services when solving these gaps.
+### Dispatch and configuration
 
-`AIService.handle_rag()` currently duplicates answer assembly already available in `RAGService.answer()`, including a duplicate import of `RAGDocumentService`. The historical consolidation was therefore not a complete removal of orchestration duplication.
+Celery autodiscovery is deferred until Django is initialized, and `core.tasks` exposes the nested tasks. Backend-launched workers can import the existing AI services through the repository-root import path. Query and worker code use a shared embedding provider factory, including `OLLAMA_BASE_URL`.
 
-## Agent and evaluation maturity
+Dispatch failures are recorded, but there is no durable outbox. A process crash between commit and publish, or a lost worker job, can leave pending work requiring manual retry. The two service transactions are not a distributed transaction: vectors commit first and readiness gates visibility until Django commits. Existing documents start pending after migration and need embedding before retrieval.
 
-- **KnowledgeAgent:** executes RAG with an injected service and session, returning chunk evidence and citations.
-- **ResearchAgent:** carries through evidence/citations/comparison/summary supplied in context state; it does not search the web.
-- **DataAnalystAgent and OperationsAgent:** return task summaries and capability metadata without querying business data.
-- **Coordinator:** runs caller-selected agents sequentially through the supervisor; it neither plans an investigation nor synthesizes a final answer.
-- **Equaliator:** exact normalized-summary agreement, evidence counts/presence, failed-agent detection, mean supplied confidence. Contradiction detection is a placeholder; evidence-free successes can still be marked complete.
-- **AgentEvaluator:** reports success/confidence/evidence/errors; `passed` mirrors result success, not independently measured correctness.
+## Existing agent and control maturity
 
-These outputs are useful contracts but should not be presented as validated reasoning quality. Future evaluation should measure actual task outcomes and evidence support.
+- KnowledgeAgent performs the implemented RAG flow and preserves evidence/citations. Its session in `state['db']` remains a live object, not durable workflow state.
+- ResearchAgent packages supplied state; DataAnalyst and Operations still return placeholder summaries.
+- The general coordinator executes selected agents sequentially without planning or synthesis. LangGraph wraps one node without checkpointing.
+- Equaliator measures summary agreement/evidence heuristics; contradiction detection remains empty. AgentEvaluator reports result fields rather than independent correctness.
+- Permission, approval, execution, verification and audit components remain disconnected scaffolds; audit storage is in memory.
 
-## Interface design
+## Interface and scope boundary
 
-The current interface is a dark holographic orb/HUD prototype. `GrootOrb` owns the Three.js scene; `VoiceInput` owns speech/microphone interaction; `HandGestureController` supplies camera-based gesture state; the page coordinates request/response and browser speech synthesis.
+No frontend files changed. The dark orb/HUD, speech and MediaPipe interactions still call `/ai`. Displayed online/confirm/cancel labels do not establish readiness or permission. There is no authenticated knowledge client, upload API, token-management UI, evidence browser, investigation timeline or persistent conversation UI.
 
-Voice transcripts go to the same `/ai` endpoint as a text payload. Gestures drive visual interactions and displayed labels such as confirm/cancel; they do not call the approval/action modules. Status labels such as “SYSTEM ONLINE” are presentation text, not backend readiness telemetry. No investigation timeline, evidence browser, or persisted conversation UI exists.
+## Verified design checks
 
-## Decisions to carry forward
-
-Keep native contracts, registry boundaries, narrow services, and separate evaluation/control responsibilities. Add trustworthy identity, evidence, and actual tool results before expanding automation. Persistent graph state, parallel execution, browser drivers, and additional databases require concrete use cases; none is necessary to replace the foundations already implemented.
+The 19 new AI tests and 23 new Django tests cover authentication, spoofed identity rejection, fail-closed scope, evidence responses, empty context, task dispatch timing/rollback/retries and registration. Eleven Django integration tests use real PostgreSQL/pgvector and both migration systems; they verify cross-tenant exclusion even when a foreign vector ranks higher, token expiry/revocation, upsert idempotency/rollback, cascade cleanup, and document locking. External providers are fake. Focused AI: 55/55; full AI: 191/192 with the baseline browser failure; full Django: 107/107. See [MEMORY.md](MEMORY.md).

@@ -104,8 +104,58 @@ loaded by Next.js. Public variables are included in the browser build, so provid
 credentials must never go there.
 
 For Celery, run `../.venv/bin/celery -A config worker --loglevel=info` from
-`backend/`. Nested document/ingestion task registration and the document-to-vector
-handoff still need work; starting a worker does not establish a complete pipeline.
+`backend/`. Health, ingestion, document processing and document embedding tasks
+are registered. Successful processing dispatches embeddings after the Django
+transaction commits. Both services and the worker must use the same database and
+embedding configuration.
+
+### Authenticated knowledge flow
+
+Apply Django migrations **before** Alembic migrations using the commands above.
+Django migration `0013_knowledge_flow` adds membership-bound credentials and
+document embedding status. Alembic `b17d32a0e901` removes legacy orphan vectors and
+adds a cascading reference to Django chunks. Existing documents start with
+embedding status `pending`; they must be embedded before they become searchable.
+
+An operator can create users, organizations, memberships and document metadata
+through Django admin. Issue a knowledge token for an existing active membership:
+
+```sh
+.venv/bin/python backend/manage.py issue_knowledge_token --username alice --organization-id 1 --hours 24
+```
+
+The command prints the token once; only its SHA-256 digest is stored. Lifetime is
+1–168 hours, default 24. Deleting its `KnowledgeAccessToken` record revokes that
+token; deleting membership or disabling the user denies access on subsequent
+requests. Use the token in an `Authorization: Bearer <token>` header to `POST /rag`.
+The request body is:
+
+```json
+{
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "message": "What does our company document say?",
+  "top_k": 5
+}
+```
+
+`top_k` must be 1–50. User and organization IDs come from the token's current
+membership; identity fields in the body are rejected. Responses retain `query`,
+`context`, `response` and add `evidence` and chunk-ID `citations`. Requests without
+a valid token return 401. Empty authorized context returns an insufficient-context
+answer without an LLM call. `/ai` keeps its existing demo contract and does not read
+company documents. The frontend still uses `/ai`; no sign-in UI was added.
+
+There is no upload HTTP API yet. From a trusted Django shell (`backend/manage.py
+shell`), send bytes for an existing document through
+`core.documents.tasks.process_document.delay(document_id, content_bytes)`.
+For an already processed document or a failed embedding job, use
+`core.documents.tasks.embed_document.delay(document_id)`. Provider/database
+failures retry up to three times with backoff; configuration/validation errors and
+broker dispatch failures require operator correction and retry. Inspect
+`Document.embedding_status` and `embedding_error` independently of extraction
+status. Reprocessing replaces chunks and cascades old vector deletion; jobs lock
+the document and upsert vectors to make retries safe. Dispatch is not backed by a
+durable outbox, so a process crash after commit can leave pending work needing retry.
 
 ### Tests
 
@@ -114,7 +164,9 @@ handoff still need work; starting a worker does not establish a complete pipelin
 .venv/bin/python backend/manage.py test core --noinput
 ```
 
-Django tests require a PostgreSQL role allowed to create a temporary test database.
+Django tests require a PostgreSQL role allowed to create a temporary test database
+and enable the installed pgvector extension there. Knowledge-flow integration
+tests run both migration systems only in that temporary database, with fake
+external embedding/LLM providers.
 See [MEMORY.md](docs/MEMORY.md) for the latest verified results and pre-existing
-failures. This setup does not resolve authentication, tenant isolation, or the
-unfinished knowledge workflow.
+failures and limitations.

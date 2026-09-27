@@ -1,6 +1,8 @@
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .tenant_scope import tenant_options
+
 
 class RAGDocumentService:
     """Loads Django DocumentChunk text for retrieved chunk IDs."""
@@ -9,21 +11,25 @@ class RAGDocumentService:
         self,
         db: Session,
         chunk_ids: list[int],
+        organization_id: int | None = None,
     ) -> dict[int, str]:
-        if not chunk_ids:
+        scope = tenant_options(organization_id)
+        if not chunk_ids or not scope:
             return {}
 
         statement = text(
             """
-            SELECT id, text
-            FROM core_documentchunk
-            WHERE id = ANY(:chunk_ids)
+            SELECT c.id, c.text
+            FROM core_documentchunk c
+            JOIN core_document d ON d.id = c.document_id
+            WHERE c.id = ANY(:chunk_ids) AND d.organization_id = :organization_id
+              AND d.status = 'ready' AND d.embedding_status = 'ready'
             """
         )
 
         rows = db.execute(
             statement,
-            {"chunk_ids": chunk_ids},
+            {"chunk_ids": chunk_ids, **scope},
         ).all()
 
         return {

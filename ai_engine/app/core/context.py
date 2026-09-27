@@ -4,6 +4,6 @@ from uuid import UUID
 
 @dataclass(frozen=True)
 class AIRequestContext:
-    user_id: UUID
-    organization_id: UUID
+    user_id: int | UUID
+    organization_id: int | UUID
     request_id: UUID

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from ..embeddings import EmbeddingConfig, EmbeddingProvider
@@ -57,6 +58,17 @@ class EmbeddingService:
         if not chunks:
             return []
 
+        records = self._build_records(chunks)
+
+        db.add_all(records)
+        db.commit()
+
+        for record in records:
+            db.refresh(record)
+
+        return records
+
+    def _build_records(self, chunks: list[tuple[int, str]]) -> list[DocumentChunkEmbedding]:
         records: list[DocumentChunkEmbedding] = []
 
         for start in range(0, len(chunks), self.config.batch_size):
@@ -101,10 +113,35 @@ class EmbeddingService:
                     )
                 )
 
-        db.add_all(records)
-        db.commit()
-
-        for record in records:
-            db.refresh(record)
-
         return records
+
+    def upsert_chunks(
+        self, db: Session, chunks: list[tuple[int, str]],
+    ) -> list[DocumentChunkEmbedding]:
+        """Atomic retry-safe writes for the document workflow; caller owns chunk locks."""
+        records = self._build_records(chunks)
+        if not records:
+            return []
+        stored = []
+        try:
+            for record in records:
+                statement = insert(DocumentChunkEmbedding).values(
+                    document_chunk_id=record.document_chunk_id,
+                    model=record.model, dimensions=record.dimensions,
+                    embedding=record.embedding,
+                    created_at=record.created_at, updated_at=record.updated_at,
+                )
+                statement = statement.on_conflict_do_update(
+                    constraint="document_chunk_embedding_model_uq",
+                    set_={"dimensions": statement.excluded.dimensions,
+                          "embedding": statement.excluded.embedding,
+                          "updated_at": statement.excluded.updated_at},
+                ).returning(DocumentChunkEmbedding)
+                stored.append(db.execute(
+                    statement.execution_options(populate_existing=True)
+                ).scalar_one())
+            db.commit()
+            return stored
+        except Exception:
+            db.rollback()
+            raise

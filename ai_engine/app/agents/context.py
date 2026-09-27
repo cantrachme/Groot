@@ -7,8 +7,8 @@ from uuid import UUID
 class AgentContext:
     """Execution context supplied to an agent."""
 
-    user_id: UUID
-    organization_id: UUID
+    user_id: int | UUID
+    organization_id: int | UUID
     request_id: UUID
     task: str
     state: dict[str, Any] = field(default_factory=dict)

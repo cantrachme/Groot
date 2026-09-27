@@ -43,3 +43,9 @@ class DocumentChunkEmbeddingService:
                 for chunk in chunks
             ],
         )
+
+    def upsert_chunks(self, db: Session, chunks: list[DocumentChunkInput]) -> list[object]:
+        return self.embedding_service.upsert_chunks(
+            db=db,
+            chunks=[(chunk.document_chunk_id, chunk.text) for chunk in chunks],
+        )

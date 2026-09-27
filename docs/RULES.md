@@ -1,41 +1,45 @@
 # GROOT — Engineering rules
 
-Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus uncommitted setup changes. These rules preserve observed architecture; requirements addressing current gaps are labeled explicitly. They are not claims that every existing path already complies.
+Verified: 2026-09-28 against `3c42b23` plus the uncommitted knowledge-flow module. Enforced contracts below are backed by code/tests. Remaining requirements are identified separately.
 
-## Preserve current boundaries
+## Preserve ownership and service boundaries
 
-1. **Keep business records in Django.** Extend `backend/core/models.py` through Django migrations. Keep AI-owned tables in SQLAlchemy/Alembic. Preserve the Alembic reflected-table filter so it does not propose dropping Django tables.
-2. **Reuse the AI database foundation.** Use the existing `Base`, `SessionLocal`, and `get_db`; do not introduce a second engine/session setup for agents. Keep Django and AI database configuration aligned because retrieval reads Django tables directly.
-3. **Adapt external libraries to GROOT contracts.** Keep `LLMProvider`, `LLMResponse`, `ToolCall`, `EmbeddingProvider`, `AgentContext`, and `AgentResult` as service boundaries. LangChain is an adapter; LangGraph currently wraps execution.
-4. **Keep agent responsibilities narrow.** Register unique names and declare capabilities/allowed tools. Preserve duplicate/unknown-name errors. A capability label is not an implemented data query or a permission grant.
-5. **Keep orchestration and quality assessment separate.** Selection/execution belong to coordinator/supervisor/orchestrator; cross-agent assessment belongs to Equaliator; evaluation metrics belong to `evaluation/`.
+1. Keep business data, memberships, credentials and document status in Django with Django migrations. Keep vectors in the existing SQLAlchemy/Alembic foundation; reuse `Base`, `SessionLocal` and `get_db`.
+2. Preserve Alembic's reflected-table ownership filter. A Django table referenced by the embedding foreign key must remain outside AI-owned metadata. Run Django migrations before Alembic migrations on a fresh database.
+3. Keep native provider, tool, agent context and result contracts. LangChain is an adapter; LangGraph is an execution wrapper. Selection/execution, Equaliator quality assessment and evaluation metrics remain separate concerns.
+4. Keep organization-scoped business uniqueness and event idempotency. Do not change unrelated agent scaffolds, frontend behavior, browser contracts or setup dependencies while extending knowledge.
 
-## Data contracts and lifecycle
+## Enforced knowledge identity and data access
 
-- Preserve organization-scoped uniqueness for business entities and event idempotency by organization/source/external ID. Events lacking external identity intentionally append.
-- Preserve document processing status transitions, deterministic chunk ordering, and replacement behavior. Coordinate embeddings when changing chunk lifecycle: the current integer reference has no foreign-key cascade.
-- Validate embedding vector count/dimensions and query limits; search using matching model and dimensions. Changing embedding configuration requires a deliberate re-embedding plan. Do not treat the deterministic local provider as semantic retrieval.
-- Preserve evidence/chunk IDs in internal RAG results. Reuse retrieval/context services instead of adding another retrieval implementation; the duplicated answer-composition paths are a consolidation opportunity.
-- Keep SQL parameterized and integration credentials behind `CredentialProvider`. Do not place secrets in docs, frontend bundles, or stored integration metadata.
+- `/rag` requires an unexpired bearer token bound to a current Django membership and active user. Persist only the token digest. Resolve integer user/organization IDs and role in the database; reject identity fields in the HTTP body.
+- Membership tokens authorize organization knowledge reads only. Do not reuse them as action approval, general tool permission or administrator authentication. Both existing membership roles may read knowledge in their organization.
+- Keep UUID request IDs and prototype `/ai` identity contracts. Do not coerce random UUIDs to Django primary keys. Missing integer organization scope must not return stored chunks/vectors.
+- Apply tenant and ready-state predicates in both similarity search and chunk text loading. Scope must precede ranking/top-k. For scoped RAG, supplied text maps must not bypass the authorized database lookup.
+- Keep SQL parameterized. Do not log bearer credentials, raw connection parameters or provider secrets. Frontend public configuration must not contain knowledge tokens or provider credentials.
+- Preserve evidence IDs/text/similarity. Reuse the single `RAGService.answer` composition. With no assembled authorized context, return an explicit insufficient-context answer without an LLM call.
 
-## Required before extending access or side effects
+## Enforced document/vector lifecycle
 
-- Derive user, organization, and roles from authenticated server-side membership. Resolve the integer/UUID mismatch deliberately; random client UUIDs are demo input, not identity.
-- Enforce tenant scope in database retrieval and chunk text access, not only in prompts or request metadata. Existing RAG does not enforce it.
-- Apply tool authorization on execution, including direct orchestrator calls. `AgentCapabilityPolicy` currently checks an allowlist and only checks a permission if a mapping exists; `PermissionEngine` accepts supplied roles without resolving memberships. Wire both to trusted data before relying on them.
-- Keep high-impact actions approval-gated. `ApprovalPolicy` marks only high-impact risk as requiring approval, while `ActionExecutor` currently requires `approved=True` for every request. Define their integration explicitly; never treat a client boolean or gesture label as sufficient approval.
-- Real action success must come from tool execution; verification must observe the resulting state. Current executor/verifier results are scaffolding. Make audit records durable before depending on them for accountability.
+- Preserve extraction results and deterministic chunk ordering/replacement. Embedding readiness is separate from extraction readiness; only documents with both states ready may be retrieved.
+- Lock the Django document row during processing/chunk replacement and during embedding generation/persistence. Enqueue embeddings only after successful processing commits. A rollback or extraction failure must not publish an embedding job.
+- Keep the AI-owned chunk foreign key with `ON DELETE CASCADE`; reprocessing/deletion must remove old embeddings. Do not remove the constraint to bypass invalid references. Legacy orphan cleanup in the migration is intentional and not reversible.
+- Use `DocumentChunkEmbeddingService.upsert_chunks` for workflow retries. Validate all vector batches before writes and commit upserts atomically; roll back partial writes on failure. Preserve uniqueness by chunk/model, and filter searches by the configured model/dimensions.
+- Record embedding success/failure in Django after the AI operation. Runtime/provider and SQLAlchemy failures have at most three automatic retries with backoff. Broker/configuration/validation failures require operator recovery. Do not imply a durable outbox or guaranteed crash recovery exists.
+- Keep Celery autodiscovery deferred until Django is ready and keep nested ingestion/document/embedding tasks registered. Reuse the shared provider factory in query and worker paths.
 
-## Working and verification conventions
+## Setup contracts retained from `3c42b23`
 
-- Both Python services load only the repository-root `.env` for setup, independent of the launch directory, with explicit environment values taking precedence. Preserve matching PostgreSQL defaults and keep Celery broker/result URLs configurable. These contracts are covered by `ai_engine/tests/test_setup.py`.
-- Construct SQLAlchemy connection URLs through `URL.create` to preserve credentials containing URL special characters. Preserve the string `DATABASE_URL` contract and Alembic percent escaping. Never log connection credentials.
-- Before AI migrations, run the read-only `python -m ai_engine.app.db.check` preflight. Extension installation/enabling belongs to the database operator; the checker must not execute DDL. This is a setup procedure, not an automatic runtime/migration gate.
-- Keep backend credentials out of public frontend configuration. Only `NEXT_PUBLIC_AI_ENGINE_URL` belongs in the frontend example; Next.js loads its own project environment file.
-- Inspect callers and focused tests before extending a named module; many KT modules already exist. Distinguish contract scaffolds, callable services, and integrated product flows in status updates.
-- For frontend changes, follow [frontend/AGENTS.md](../frontend/AGENTS.md): read the relevant bundled Next.js guide before coding against this version.
-- Maintain the Python dependency manifest when using imported libraries. LangChain/LangGraph are now declared; preserve compatibility between the Groq SDK and its LangChain adapter. Verify dependency changes with a fresh install, `pip check`, and adapter/graph regression tests; the manifest is not a complete transitive lockfile.
-- Use focused `unittest` tests under `ai_engine/tests/`, Django tests in `backend/core/tests.py`, and frontend lint/build as appropriate. Database/model changes also need migration review. Typical suite commands are `python -m unittest discover -s ai_engine/tests` from the root and `python manage.py test core` from `backend/`, with dependencies/settings/database prepared.
-- Do not repeat historical test counts as fresh validation. Do not assume mocked connector/provider tests demonstrate live integrations. Report what ran and what remains unverified.
-- Preserve unrelated work. The browser stub and tests are tracked in baseline `231e302`; `test_extracts_information` already fails because it expects a string and receives `BrowserResult`. Do not rewrite that test or alter browser behavior while working on setup. Baseline: AI 161/162, Django 84/84. After setup: AI 172/173, Django 84/84, with the same single failure in both existing and fresh environments.
-- After each module, implement → focused tests → regression checks → update all six living docs → report. Record pre-existing failures separately; do not describe scaffold contracts or untested services as completed product flows.
+Both Python services locate the root `.env` independently of launch directory; exported values win. Preserve matching `POSTGRES_*` defaults and configurable Redis URLs. Construct SQLAlchemy URLs through `URL.create`, keep the string URL/Alembic percent-escaping contract, and use the read-only pgvector preflight before migrations. Operators install/enable extensions. The manifest declares compatible LangChain/LangGraph/Groq dependencies but is not a complete transitive lockfile.
+
+## Still required before further automation
+
+Trusted authorization must be applied when adding real tools, including direct orchestrator calls. Existing capability mappings and supplied-role permission contracts are not a complete execution boundary. High-impact actions need durable approval, actual tool execution, durable audit and independent outcome checks. Current executor/verifier/audit do not provide these guarantees. Frontend gestures are not approval.
+
+## Verification and working conventions
+
+- Implement only the current roadmap module. Add focused tests, run applicable regression suites and checks, then update PRD, ARCHITECTURE, RULES, DESIGN, Task and MEMORY before reporting. Do not commit/push unless requested.
+- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in the knowledge module. Baseline AI: 172/173; final: 191/192, with the same browser extraction failure. Baseline Django: 84/84; final: 107/107.
+- Database integration tests must target the temporary Django test database, apply both migration systems there, and clean up AI tables before Django teardown. The tests do not migrate the developer database.
+- Distinguish real database verification from fake external providers. Live Groq/Ollama/GitHub, worker/broker execution and frontend builds were not verified here.
+- Ruff 0.16.9 on changed Python files reports 16 pre-existing diagnostics (15 in models, 1 in KnowledgeAgent); baseline comparison found zero new diagnostics. Preserve unrelated code instead of suppressing those diagnostics. No Python type-checker configuration exists; compilation is not a static type check.
+- Before future frontend code changes, read `frontend/AGENTS.md` and the relevant bundled Next.js guide. The current module changes no frontend files.

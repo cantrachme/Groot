@@ -1,87 +1,73 @@
 # GROOT — Current architecture
 
-Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus uncommitted setup changes. Python tests, fresh dependency installation, task registration and PostgreSQL/pgvector preflight were checked. Frontend and external-provider runtime behavior remain unverified.
+Verified: 2026-09-28 against `3c42b23` plus uncommitted knowledge-flow changes. Unit tests, PostgreSQL/pgvector integration tests, both migration systems and task registration were exercised. External providers and running workers were not exercised.
 
-## Service and technology map
+## Services and ownership
 
-| Location | Responsibility and technology |
+| Location | Responsibility |
 | --- | --- |
-| `frontend/` | Next.js 16.3, React 19.2, TypeScript, Tailwind 4; Three.js/React Three Fiber orb; browser speech APIs; MediaPipe gestures |
-| `backend/config/`, `backend/core/` | Django 6.1 business models/admin, integration and document services, Celery configuration/tasks |
-| `ai_engine/app/` | FastAPI, Pydantic HTTP models, provider/tool abstractions, RAG, standalone agent/control modules |
-| `ai_engine/app/db/`, `models/`, `alembic/` | SQLAlchemy/psycopg, PostgreSQL pgvector embeddings, Alembic ownership of AI tables |
-| `infrastructure/redis/` | Redis configuration; Django uses Redis database 0 as Celery broker and 1 for results |
-| `docs/` | Product, architecture, engineering rules, design, roadmap, compact memory |
+| `frontend/` | Next.js 16.3 / React 19.2 voice/orb/gesture prototype; calls `/ai` |
+| `backend/` | Django 6.1 models/admin, memberships and token issuance, integrations, document processing and Celery jobs |
+| `ai_engine/app/` | FastAPI, provider/tool contracts, KnowledgeAgent, embedding and RAG services, standalone agent/control modules |
+| `ai_engine/app/db/`, `models/`, `alembic/` | Existing SQLAlchemy engine, SessionLocal/Base, AI-owned vector table and migrations |
+| `infrastructure/redis/` | Redis configuration; local Celery broker/result defaults use databases 0/1 |
 
-Frontend versions above are manifest declarations. Python dependencies for both services are in [backend/requirements.txt](../backend/requirements.txt), now including `langchain-core==1.5.6`, `langchain-groq==1.1.3`, and `langgraph==1.2.11`. Groq is pinned to `0.37.1`, matching the installed/tested adapter requirement `>=0.30,<1`; the previous `1.6.0` declaration conflicted with that adapter. A fresh Python 3.14.4 installation succeeded and `pip check` found no broken requirements. This manifest is not a complete transitive lockfile. No Docker/Compose, Kubernetes, CI pipeline, or MongoDB implementation was found. Root `scripts/` and `tests/` are empty; tests reside beside the services.
+Django owns business, document, chunk, membership and `core_knowledgeaccesstoken` tables. Alembic owns `document_chunk_embeddings`. AI reads Django tables through parameterized SQL. No new database engine or workflow framework was introduced. Python dependencies and runtime setup completed in `3c42b23` remain in place.
 
-## HTTP path that exists today
+## HTTP flows
 
 ```mermaid
 flowchart LR
-    UI[Next.js voice and orb UI] -->|POST /ai| API[FastAPI]
-    API --> AI[AIService]
-    AI --> ORCH[Orchestrator]
-    ORCH --> GROQ[Groq LLM]
-    ORCH --> TOOLS[ToolRegistry: health_check]
-    TOOLS --> ORCH
-    ADMIN[Django admin] --> DOMAIN[Django models]
-    DOMAIN --> PG[(PostgreSQL)]
-    RAG[POST /rag] --> RET[Embedding and retrieval services]
-    RET --> OLLAMA[Ollama]
-    RET --> PG
-    RET --> ANSWER[Chunk text and LLM context]
-    ANSWER --> GROQ
+    UI[Voice and orb prototype] -->|POST /ai| AI[Existing provider and health-tool loop]
+    CLIENT[Knowledge client with bearer token] -->|POST /rag| AUTH[Token digest and current membership lookup]
+    AUTH --> AGENT[KnowledgeAgent]
+    AGENT --> RAG[Shared RAGService]
+    RAG --> SEARCH[Organization-scoped vector search]
+    SEARCH --> TEXT[Organization-scoped chunk text]
+    TEXT --> ANSWER[Context and LLM answer or fixed insufficient-context response]
+    ANSWER --> EVIDENCE[Answer, evidence and citation IDs]
 ```
 
-- `GET /health`: fixed AI engine health payload; not a dependency readiness check.
-- `POST /ai`: requires UUID `user_id`, `organization_id`, `request_id`, and `message`; returns `LLMResponse` (`text`, `tool_calls`). The orchestrator supports an initial LLM call, tool execution, and one follow-up call, not an autonomous loop.
-- `POST /rag`: same fields plus `top_k` (default 5); returns `query`, assembled `context`, and `response`. The UI currently calls `/ai`, not `/rag`.
-- Django routes only `/admin/`; `core/views.py` remains a placeholder.
+- `GET /health`: fixed health payload; no dependency readiness probe.
+- `POST /ai`: existing UUID user/organization/request fields and message; one tool round, direct Groq adapter, global registry contains only `health_check`. This demo route has no company-document retrieval.
+- `POST /rag`: bearer authentication; body contains UUID `request_id`, nonblank `message` (up to 12,000 characters), optional `top_k` (1–50, default 5). Extra fields, including claimed user/organization IDs, are rejected. Response preserves `query`, `context`, `response` and adds chunk `evidence` and integer `citations`.
+- `/rag` uses synchronous FastAPI dependencies/handler for blocking database/provider operations. `/ai` remains the original async route with blocking provider calls.
+- Django HTTP routes remain `/admin/`; credential issuance is a management command, not a new login endpoint. Local CORS settings are unchanged.
 
-[FastAPI entry point](../ai_engine/app/main.py) allows local frontend origins on ports 3000/3001. It has no authentication dependency. Request UUIDs are supplied by callers and are not mapped to Django's integer user/organization keys. Blocking provider/database calls are currently made inside async route functions.
+`KnowledgeAccessToken` holds a unique SHA-256 digest, membership foreign key and expiry. `issue_knowledge_token` creates 32 random bytes encoded for transport, with 1–168 hour lifetime (default 24). FastAPI hashes the bearer credential and joins token → membership → active user, checking expiry on every request. Expired, unknown, revoked or inactive-user credentials return 401. Removing membership cascades token deletion. Current membership supplies user ID, organization ID and role; all authenticated members may read knowledge in that organization. Knowledge access grants no action permission.
 
-## Storage ownership and knowledge flow
+`AgentContext` and `AIRequestContext` accept integer identities for this trusted path and retain UUIDs for old prototype contracts. No UUID-to-integer coercion is attempted. Missing integer scope cannot access stored documents.
 
-Django owns users, organizations/memberships, teams, customers, projects/tasks, events/risks, integrations, documents, extracted content, and chunks. Django migrations manage these tables. The AI engine owns `document_chunk_embeddings`, managed by Alembic; its autogeneration filter limits reflected tables to that AI table.
+## Document processing and embeddings
 
-The services expect access to the same PostgreSQL database: [RAGDocumentService](../ai_engine/app/services/rag_document_service.py) reads Django's `core_documentchunk` table directly through parameterized SQL. Embeddings reference integer chunk IDs without a database foreign key. `(document_chunk_id, model)` is unique; dimensions are stored separately in a variable-dimension pgvector column. The migration requires the vector extension to be enabled in the target database. The new read-only `python -m ai_engine.app.db.check` command checks connectivity and `pg_extension`, distinguishes an available-but-disabled extension from a missing server installation, and exits nonzero with operator guidance. It does not modify extensions or migrations. The configured database passed with pgvector 0.8.6.
+1. Existing `process_document` runs the extraction/normalization/chunk pipeline inside a Django transaction with a document-row lock.
+2. Chunk replacement invalidates embedding readiness and deletes old chunks. Alembic's `embedding_chunk_fk` cascades deletion of associated vectors.
+3. On successful commit, `enqueue_document_embeddings` dispatches `embed_document`. Extraction's existing READY result is preserved; `Document.embedding_status` and `embedding_error` track embedding work separately.
+4. The job locks the same Django document row, loads current ordered chunks and calls `DocumentChunkEmbeddingService.upsert_chunks` using the existing AI `SessionLocal`.
+5. `EmbeddingService` validates every batch before writes, then upserts by `(document_chunk_id, model)` in one SQLAlchemy transaction. Write failures roll back; retries keep row identity/created time and replace vector/dimensions/update time.
+6. Django marks embedding readiness only after the AI transaction succeeds. A failed provider/database/validation operation records a generic error and propagates the exception. Runtime/provider and SQLAlchemy failures retry at most three times with backoff; validation/configuration errors require correction.
 
-Document preparation and retrieval are separate paths:
+The document lock spans provider calls and the AI transaction, so processing and embedding for one document serialize. A duplicate/delayed job processes current chunks rather than carrying stale chunk payloads. Foreign keys also prevent direct orphan inserts and handle document deletion through chunk deletion.
 
-1. Django `process_document` task → text/PDF extractor → normalization → deterministic text chunks → Django persistence.
-2. AI `DocumentChunkEmbeddingService` → configured embedding provider → AI embedding rows. No call from the document pipeline to this service was found.
-3. Query → embedding → cosine search filtered by model/dimensions → chunk text lookup → assembled context → LLM answer.
+Celery now defers autodiscovery until Django initializes; `core.tasks` imports health, document-processing, document-embedding and ingestion tasks. Fresh worker-style loader tests verify all four registrations. Django settings add the repository root to the import path so backend-launched workers can reuse AI services. No scheduler or durable dispatch outbox was added. Broker dispatch failures are recorded on the document; crashes between commit and dispatch, or worker loss, can leave work requiring manual retry.
 
-Ollama defaults to `nomic-embed-text:latest`, 768 dimensions, batch size 32, local server port 11434. These are configured defaults, not a fresh live verification. The local provider creates deterministic hash vectors for development, not semantic embeddings.
+## Retrieval and answer composition
 
-Two answer-composition paths remain: `AIService.handle_rag()` and `RAGService.answer()`; both use the shared retrieval primitives. KnowledgeAgent uses the latter. Neither similarity search nor chunk lookup applies organization scope. Reprocessing deletes/recreates Django chunks, while embedding cleanup/replacement is not coordinated, allowing stale references. Embedding writes insert rather than upsert.
+Similarity search retains matching model/dimensions and cosine ordering. A parameterized `EXISTS` join through `core_documentchunk` and `core_document` requires the authorized organization plus ready extraction/embedding status **before** top-k is applied. `RAGDocumentService` checks that scope again when loading text. Missing scope gives no stored results; invalid nonpositive/noninteger scope is rejected. Scoped RAG ignores caller-supplied text maps and reloads authorized text.
 
-## Integrations and background jobs
+`AIService.handle_rag` now delegates to `RAGService.answer`; KnowledgeAgent uses the same composition. Empty assembled context produces a fixed insufficient-context answer without an LLM call. Nonempty context still uses the existing LLM prompt; semantic answer correctness is not independently verified. Evidence preserves chunk IDs/text/similarity and citations refer to those chunks. The existing nominal 12,000-character context budget is unchanged.
 
-GitHub is the only concrete connector: environment credentials → integration registry/service → HTTP GET → repository-shaped normalized events → ingestion service → event persistence. Events with external IDs are upserted by organization/source/external ID; events without an external ID are appended. Other `Integration.Provider` values do not have connector implementations.
+## Migrations and rollout
 
-Celery defines health, ingestion, and document tasks. Configuration autodiscovers `core.tasks`; nested `core.ingestion.tasks` and `core.documents.tasks` are not explicitly imported there. A fresh process loading Django and `config.celery.app` registered only `core.tasks.health_check_task`; nested tasks are not auto-registered. No recurring ingestion schedule, agent job pipeline, or automated embedding queue was found.
+- Django `0013_knowledge_flow`: token model and document embedding status/error. Existing documents become embedding-pending and need an embedding job before scoped retrieval can return them.
+- Alembic `b17d32a0e901`: removes legacy orphan embeddings, then adds `ON DELETE CASCADE` from vector chunk IDs to Django chunks. Downgrade removes the constraint; deleted orphans cannot be restored.
+- The SQLAlchemy model references a Django chunk table in separate reference-only metadata. Django tables are not added to AI `Base.metadata`; Alembic's ownership filter remains. Its environment can accept an explicit connection for test-database migrations.
+- Apply Django migrations, ensure vector is enabled, then run Alembic before starting the flow. Migration tests used only a temporary database; the developer database was not migrated.
 
-## Agent and control components outside HTTP routing
+## Other components and remaining boundaries
 
-`AgentSelection` supplies names → `MultiAgentCoordinator` → `AgentSupervisor` → one `AgentGraph` per selected agent → `AgentResult` tuple. Execution is sequential. LangGraph wraps a single execution node; there is no checkpointer, branching, pause/resume, or automatic planning. Agent state may contain a live SQLAlchemy session and is not a durable workflow representation.
+GitHub is still the only concrete connector, with organization/source/external-ID event idempotency. General coordination is sequential and explicitly selected; LangGraph wraps a single node without persistence. ResearchAgent packages state; DataAnalyst/Operations are placeholders. Equaliator is heuristic, contradiction detection is empty, and action execution/verification and audit remain scaffolds or memory-only.
 
-The LangChain Groq adapter implements GROOT's `LLMProvider`; `AIService` still defaults to the direct Groq adapter. Equaliator compares result summaries and evidence presence; contradiction detection always returns an empty tuple. `AgentEvaluator` scores result fields. Permission, approval, action, verification, and audit components are not connected to this HTTP flow. Audit storage is an in-memory list.
+The root dotenv/process-environment precedence, URL escaping, dependency pins and preflight from the setup module remain. The shared embedding provider factory now serves both query and worker paths and honors `OLLAMA_BASE_URL`. Local hash vectors remain nonsemantic. Production secret/host settings still need hardening. No conversation store, durable workflow, MongoDB, MCP, CI, or container deployment was added.
 
-## Configuration and external dependencies
-
-- Django settings and AI database setup resolve the repository-root `.env` from their source paths, with process environment values taking precedence. Both use `POSTGRES_DB/USER/PASSWORD/HOST/PORT` and matching existing local defaults (`groot_db`, `rachit`, empty password, `localhost`, `5432`). No new engine or shared configuration service was added.
-- The AI URL is built with `SQLAlchemy.URL.create` and rendered as a string for existing Alembic callers. Credentials with URL special characters survive round trips; Alembic's existing percent escaping and ownership filter remain intact. `Base`, `SessionLocal`, engine settings and migration history are preserved.
-- Root `.env.example` includes PostgreSQL, embeddings, Groq/GitHub credentials and Celery Redis URLs. Django reads `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, retaining local Redis database 0/1 defaults.
-- `frontend/.env.example` supplies `NEXT_PUBLIC_AI_ENGINE_URL=http://localhost:8001`; copy it to `frontend/.env.local`. The nested ignore file permits the example while keeping actual environment files ignored. No frontend application behavior changed.
-- Django production settings only disable debug and leave allowed hosts empty; the base secret is a development constant.
-- MediaPipe loads WASM/model assets from external URLs. Microphone/camera and speech support depend on browser capabilities and permission.
-
-## Setup verification boundary
-
-11 new setup tests cover environment precedence/defaults, root-file resolution, credential encoding, offline Alembic SQL, pgvector states and safe CLI diagnostics. The focused set passed 27/27. Both environments produced Django 84/84 and AI 172/173, retaining only the baseline browser extraction contract failure. Django system checks passed and no model migrations were detected. Existing SQLAlchemy `declarative_base` deprecation warnings remain. The preflight is an explicit operator command; it is not wired into `/health`, request handling, or Alembic startup. Fresh database provisioning, live providers, Redis workers and frontend builds were not exercised.
-
-## Planned architecture, not current wiring
-
-Authenticated request → orchestrator/selection → specialized agents with controlled tools → Equaliator → synthesis → persisted approval where required → real action → independent verification. Preserve Django business-data ownership and the existing SQLAlchemy/RAG foundation. Add persistence, background execution, tracing, and browser drivers incrementally. MongoDB, MCP, additional specialist agents, and container orchestration remain unimplemented possibilities.
+Verification: focused AI 55/55, focused Django 23/23, full AI 191/192 (baseline browser failure), full Django 107/107; migration checks passed. Ruff reports 16 baseline diagnostics and zero new ones. See [MEMORY.md](MEMORY.md) for commands and exact limits.
