@@ -1,6 +1,6 @@
 # GROOT — Product requirements and current scope
 
-Reviewed: 2026-09-21. Lightweight source review at commit `06c15a9`, including the local, untracked browser prototype. Source code is authoritative; the supplied KT is historical context. This review did not run application services or test suites.
+Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus the uncommitted setup module. Source inspection, focused tests, both Python regression suites, a fresh dependency installation, and a live PostgreSQL/pgvector preflight were completed. Live provider calls and frontend runtime behavior were not tested.
 
 ## Purpose and users
 
@@ -12,6 +12,7 @@ Intended users are startup founders, operations leaders, and functional teams; t
 
 | Area | Implemented | Product limitation |
 | --- | --- | --- |
+| Development setup | Declared LangChain/LangGraph dependencies, matching environment-based database settings, provider/Redis/frontend examples, read-only pgvector preflight and setup instructions | Requires operator-provisioned PostgreSQL/pgvector and external services; does not establish a complete knowledge workflow |
 | Company foundation | Django user, organization, membership, team, customer, project, task, event, risk, document, integration models and migrations | Only `/admin/` is routed; no business REST API or frontend sign-in flow |
 | Assistant | FastAPI `/ai`, Groq provider, tool schemas and registry, one tool-execution round followed by an LLM response | Default registry contains only `health_check`; no agent investigation pipeline behind this endpoint |
 | Knowledge | Text/PDF extraction, normalization, chunking, embedding services, pgvector retrieval, context assembly, `/rag` | No upload-to-embedding workflow is wired end to end; retrieval lacks tenant filtering |
@@ -29,7 +30,7 @@ This is a development prototype with reusable backend foundations. Model presenc
 - There is no authenticated link between Django identities and AI requests. Django uses integer IDs; AI request contracts require UUIDs.
 - RAG queries filter embedding model/dimensions, but not organization. They must be scoped before using shared tenant data.
 - Risk records exist; automated risk detection and continuous investigations do not.
-- Browser operations currently exist only as an untracked state/result stub, without browser automation.
+- Browser operations are tracked state/result stubs, without browser automation. The existing extraction test expects a string while the implementation returns `BrowserResult`; this pre-existing failure remains outside the setup module.
 - No persistent conversations, resumable agent workflows, approval inbox, or investigation activity feed was found.
 
 ## Near-term product outcome
@@ -41,7 +42,11 @@ The recommended next milestone is one authenticated, organization-scoped knowled
 3. Retrieval cannot return another organization's chunks.
 4. One request reaches the existing KnowledgeAgent/RAG services and returns an answer plus evidence, including an honest insufficient-context response.
 
-This is a proposed priority derived from integration gaps, not evidence of an assigned sprint. See [Task.md](Task.md).
+The first numbered prerequisite in [Task.md](Task.md), **Make setup reproducible**, is complete at its documented scope. The authenticated, organization-scoped knowledge flow remains the next product milestone; none of its acceptance criteria is claimed complete by the setup work.
+
+## Setup verification
+
+The 27 focused tests passed. Full regression results in both the existing and a fresh Python 3.14.4 environment: Django 84/84 passed; AI 172/173 passed, with the same browser extraction failure observed before implementation (baseline AI: 161/162 passed). The configured database passed the read-only check with pgvector 0.8.6. No new test failures were introduced. See [MEMORY.md](MEMORY.md) for commands and limits.
 
 ## Future direction
 

@@ -1,22 +1,22 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
-
-load_dotenv()
-
-
-DATABASE_URL = (
-    f"postgresql+psycopg://"
-    f"{os.getenv('POSTGRES_USER')}:"
-    f"{os.getenv('POSTGRES_PASSWORD')}@"
-    f"{os.getenv('POSTGRES_HOST')}:"
-    f"{os.getenv('POSTGRES_PORT')}/"
-    f"{os.getenv('POSTGRES_DB')}"
-)
-
-from sqlalchemy import create_engine
+from sqlalchemy import URL, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+
+load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
+
+
+DATABASE_URL = URL.create(
+    "postgresql+psycopg",
+    username=os.getenv("POSTGRES_USER", "rachit"),
+    password=os.getenv("POSTGRES_PASSWORD", ""),
+    host=os.getenv("POSTGRES_HOST", "localhost"),
+    port=int(os.getenv("POSTGRES_PORT", "5432")),
+    database=os.getenv("POSTGRES_DB", "groot_db"),
+).render_as_string(hide_password=False)
 
 
 # Create the SQLAlchemy engine for PostgreSQL.

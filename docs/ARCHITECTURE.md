@@ -1,6 +1,6 @@
 # GROOT — Current architecture
 
-Reviewed: 2026-09-21 at `06c15a9`; static overview, not runtime verification. Local untracked browser files are explicitly distinguished below.
+Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus uncommitted setup changes. Python tests, fresh dependency installation, task registration and PostgreSQL/pgvector preflight were checked. Frontend and external-provider runtime behavior remain unverified.
 
 ## Service and technology map
 
@@ -13,7 +13,7 @@ Reviewed: 2026-09-21 at `06c15a9`; static overview, not runtime verification. Lo
 | `infrastructure/redis/` | Redis configuration; Django uses Redis database 0 as Celery broker and 1 for results |
 | `docs/` | Product, architecture, engineering rules, design, roadmap, compact memory |
 
-Versions above are manifest declarations, not independently verified compatibility. Python dependencies for both services are in [backend/requirements.txt](../backend/requirements.txt). It currently omits the imported `langchain_core`, `langchain_groq`, and `langgraph` packages. No Docker/Compose, Kubernetes, CI pipeline, or MongoDB implementation was found. Root `scripts/` and `tests/` are empty; tests reside beside the services.
+Frontend versions above are manifest declarations. Python dependencies for both services are in [backend/requirements.txt](../backend/requirements.txt), now including `langchain-core==1.5.6`, `langchain-groq==1.1.3`, and `langgraph==1.2.11`. Groq is pinned to `0.37.1`, matching the installed/tested adapter requirement `>=0.30,<1`; the previous `1.6.0` declaration conflicted with that adapter. A fresh Python 3.14.4 installation succeeded and `pip check` found no broken requirements. This manifest is not a complete transitive lockfile. No Docker/Compose, Kubernetes, CI pipeline, or MongoDB implementation was found. Root `scripts/` and `tests/` are empty; tests reside beside the services.
 
 ## HTTP path that exists today
 
@@ -45,7 +45,7 @@ flowchart LR
 
 Django owns users, organizations/memberships, teams, customers, projects/tasks, events/risks, integrations, documents, extracted content, and chunks. Django migrations manage these tables. The AI engine owns `document_chunk_embeddings`, managed by Alembic; its autogeneration filter limits reflected tables to that AI table.
 
-The services expect access to the same PostgreSQL database: [RAGDocumentService](../ai_engine/app/services/rag_document_service.py) reads Django's `core_documentchunk` table directly through parameterized SQL. Embeddings reference integer chunk IDs without a database foreign key. `(document_chunk_id, model)` is unique; dimensions are stored separately in a variable-dimension pgvector column. The migration assumes the database already has the vector extension available.
+The services expect access to the same PostgreSQL database: [RAGDocumentService](../ai_engine/app/services/rag_document_service.py) reads Django's `core_documentchunk` table directly through parameterized SQL. Embeddings reference integer chunk IDs without a database foreign key. `(document_chunk_id, model)` is unique; dimensions are stored separately in a variable-dimension pgvector column. The migration requires the vector extension to be enabled in the target database. The new read-only `python -m ai_engine.app.db.check` command checks connectivity and `pg_extension`, distinguishes an available-but-disabled extension from a missing server installation, and exits nonzero with operator guidance. It does not modify extensions or migrations. The configured database passed with pgvector 0.8.6.
 
 Document preparation and retrieval are separate paths:
 
@@ -61,7 +61,7 @@ Two answer-composition paths remain: `AIService.handle_rag()` and `RAGService.an
 
 GitHub is the only concrete connector: environment credentials → integration registry/service → HTTP GET → repository-shaped normalized events → ingestion service → event persistence. Events with external IDs are upserted by organization/source/external ID; events without an external ID are appended. Other `Integration.Provider` values do not have connector implementations.
 
-Celery defines health, ingestion, and document tasks. Configuration autodiscovers `core.tasks`; nested `core.ingestion.tasks` and `core.documents.tasks` are not explicitly imported there. Worker registration of those tasks needs validation. No recurring ingestion schedule, agent job pipeline, or automated embedding queue was found.
+Celery defines health, ingestion, and document tasks. Configuration autodiscovers `core.tasks`; nested `core.ingestion.tasks` and `core.documents.tasks` are not explicitly imported there. A fresh process loading Django and `config.celery.app` registered only `core.tasks.health_check_task`; nested tasks are not auto-registered. No recurring ingestion schedule, agent job pipeline, or automated embedding queue was found.
 
 ## Agent and control components outside HTTP routing
 
@@ -69,12 +69,18 @@ Celery defines health, ingestion, and document tasks. Configuration autodiscover
 
 The LangChain Groq adapter implements GROOT's `LLMProvider`; `AIService` still defaults to the direct Groq adapter. Equaliator compares result summaries and evidence presence; contradiction detection always returns an empty tuple. `AgentEvaluator` scores result fields. Permission, approval, action, verification, and audit components are not connected to this HTTP flow. Audit storage is an in-memory list.
 
-## Configuration gaps and external dependencies
+## Configuration and external dependencies
 
-- Root `.env.example` covers PostgreSQL and embeddings, but omits `GROQ_API_KEY`, `GITHUB_TOKEN`, and frontend `NEXT_PUBLIC_AI_ENGINE_URL`.
-- AI database configuration loads environment values; Django database and Redis settings are hard-coded. Align these explicitly when running both services.
+- Django settings and AI database setup resolve the repository-root `.env` from their source paths, with process environment values taking precedence. Both use `POSTGRES_DB/USER/PASSWORD/HOST/PORT` and matching existing local defaults (`groot_db`, `rachit`, empty password, `localhost`, `5432`). No new engine or shared configuration service was added.
+- The AI URL is built with `SQLAlchemy.URL.create` and rendered as a string for existing Alembic callers. Credentials with URL special characters survive round trips; Alembic's existing percent escaping and ownership filter remain intact. `Base`, `SessionLocal`, engine settings and migration history are preserved.
+- Root `.env.example` includes PostgreSQL, embeddings, Groq/GitHub credentials and Celery Redis URLs. Django reads `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`, retaining local Redis database 0/1 defaults.
+- `frontend/.env.example` supplies `NEXT_PUBLIC_AI_ENGINE_URL=http://localhost:8001`; copy it to `frontend/.env.local`. The nested ignore file permits the example while keeping actual environment files ignored. No frontend application behavior changed.
 - Django production settings only disable debug and leave allowed hosts empty; the base secret is a development constant.
 - MediaPipe loads WASM/model assets from external URLs. Microphone/camera and speech support depend on browser capabilities and permission.
+
+## Setup verification boundary
+
+11 new setup tests cover environment precedence/defaults, root-file resolution, credential encoding, offline Alembic SQL, pgvector states and safe CLI diagnostics. The focused set passed 27/27. Both environments produced Django 84/84 and AI 172/173, retaining only the baseline browser extraction contract failure. Django system checks passed and no model migrations were detected. Existing SQLAlchemy `declarative_base` deprecation warnings remain. The preflight is an explicit operator command; it is not wired into `/health`, request handling, or Alembic startup. Fresh database provisioning, live providers, Redis workers and frontend builds were not exercised.
 
 ## Planned architecture, not current wiring
 

@@ -1,6 +1,6 @@
 # GROOT — Engineering rules
 
-Reviewed: 2026-09-21. These rules preserve observed architecture; requirements addressing current gaps are labeled explicitly. They are not claims that every existing path already complies.
+Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus uncommitted setup changes. These rules preserve observed architecture; requirements addressing current gaps are labeled explicitly. They are not claims that every existing path already complies.
 
 ## Preserve current boundaries
 
@@ -28,9 +28,14 @@ Reviewed: 2026-09-21. These rules preserve observed architecture; requirements a
 
 ## Working and verification conventions
 
+- Both Python services load only the repository-root `.env` for setup, independent of the launch directory, with explicit environment values taking precedence. Preserve matching PostgreSQL defaults and keep Celery broker/result URLs configurable. These contracts are covered by `ai_engine/tests/test_setup.py`.
+- Construct SQLAlchemy connection URLs through `URL.create` to preserve credentials containing URL special characters. Preserve the string `DATABASE_URL` contract and Alembic percent escaping. Never log connection credentials.
+- Before AI migrations, run the read-only `python -m ai_engine.app.db.check` preflight. Extension installation/enabling belongs to the database operator; the checker must not execute DDL. This is a setup procedure, not an automatic runtime/migration gate.
+- Keep backend credentials out of public frontend configuration. Only `NEXT_PUBLIC_AI_ENGINE_URL` belongs in the frontend example; Next.js loads its own project environment file.
 - Inspect callers and focused tests before extending a named module; many KT modules already exist. Distinguish contract scaffolds, callable services, and integrated product flows in status updates.
 - For frontend changes, follow [frontend/AGENTS.md](../frontend/AGENTS.md): read the relevant bundled Next.js guide before coding against this version.
-- Maintain the Python dependency manifest when using imported libraries; LangChain/LangGraph imports are currently missing from it.
+- Maintain the Python dependency manifest when using imported libraries. LangChain/LangGraph are now declared; preserve compatibility between the Groq SDK and its LangChain adapter. Verify dependency changes with a fresh install, `pip check`, and adapter/graph regression tests; the manifest is not a complete transitive lockfile.
 - Use focused `unittest` tests under `ai_engine/tests/`, Django tests in `backend/core/tests.py`, and frontend lint/build as appropriate. Database/model changes also need migration review. Typical suite commands are `python -m unittest discover -s ai_engine/tests` from the root and `python manage.py test core` from `backend/`, with dependencies/settings/database prepared.
 - Do not repeat historical test counts as fresh validation. Do not assume mocked connector/provider tests demonstrate live integrations. Report what ran and what remains unverified.
-- Preserve unrelated local changes. At this review, `ai_engine/app/browser/` and `ai_engine/tests/test_browser_tool.py` were untracked work in progress.
+- Preserve unrelated work. The browser stub and tests are tracked in baseline `231e302`; `test_extracts_information` already fails because it expects a string and receives `BrowserResult`. Do not rewrite that test or alter browser behavior while working on setup. Baseline: AI 161/162, Django 84/84. After setup: AI 172/173, Django 84/84, with the same single failure in both existing and fresh environments.
+- After each module, implement → focused tests → regression checks → update all six living docs → report. Record pre-existing failures separately; do not describe scaffold contracts or untested services as completed product flows.

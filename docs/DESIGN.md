@@ -1,6 +1,6 @@
 # GROOT — Design decisions and implementation patterns
 
-Reviewed: 2026-09-21. This document describes observed design and its consequences, rather than prescribing a replacement architecture.
+Verified: 2026-09-28 against baseline `231e3027fc4299dd94ed75451dc45dccf4b2dbc8` plus uncommitted setup changes. This document describes observed design and its consequences. Python tests and setup checks were run; frontend design remains source-reviewed only.
 
 ## System philosophy
 
@@ -22,6 +22,18 @@ The historical product loop is understand → investigate → explain → recomm
 | AI `permissions/`, `approvals/`, `actions/`, `verification/`, `audit/` | Separate authorization, risk, execution, outcome, and event contracts; not yet an integrated control boundary |
 
 Dataclass freezing is shallow: `state`, result `data`, and metadata may contain mutable objects. `AgentContext` has no conversation ID today and KnowledgeAgent expects a SQLAlchemy session in `state['db']`. Do not assume these objects can already be serialized for resumed workflows.
+
+## Implemented setup design
+
+The setup module keeps each service's existing entry points and database ownership. Django and AI configuration both locate the root `.env` relative to their source files and use the same `POSTGRES_*` names/defaults. Exported values win over dotenv values. This avoids a new cross-service configuration package while making consistency explicit and testable. Celery URLs follow the same override convention with the existing local defaults.
+
+SQLAlchemy assembles and escapes URL components through `URL.create`; the public `DATABASE_URL` remains a string for Alembic. The engine, session factory, Base and migration ownership do not change. Tests exercise special characters in credentials and generate offline migration SQL through the existing Alembic path.
+
+The pgvector checker is an explicit read-only setup command. It returns an enabled version, or explains whether the operator must install the server extension or enable it in the target database. Connection failures return a generic diagnostic without echoing driver parameters. It does not provision infrastructure or change the static HTTP health response.
+
+Root and frontend environment examples are separate because Next.js reads its own project directory. The frontend example contains only the public AI service URL; provider secrets remain on the backend. README documents setup, extension prerequisites, service commands and tests.
+
+Validation: 11 new tests; focused selection 27/27 passed; both existing and fresh Python environments report Django 84/84 and AI 172/173 with the same pre-existing browser failure. Live pgvector check passed at version 0.8.6. External services, full fresh database provisioning and frontend builds remain outside this verification.
 
 ## Knowledge design
 
