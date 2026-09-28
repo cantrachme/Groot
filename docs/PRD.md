@@ -1,6 +1,6 @@
 # GROOT — Product requirements and current scope
 
-Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `0d7d2da feat: add coordination and quality`. Setup, the knowledge backend, trusted read-only tools, and Coordination and Quality are committed. Controlled Actions is implemented and verified in the working tree; nothing was committed or pushed.
 
 ## Purpose and users
 
@@ -19,7 +19,7 @@ GROOT aims to provide operational intelligence for growing startups: connect com
 | External data | Read-only GitHub connector and organization-scoped event ingestion | Other integrations remain enum choices |
 | Agents | Registry/supervisor/LangGraph execution with explicit ordered multi-agent investigation, per-agent evaluations and aggregate quality/status | Trusted server-side caller supplies the original context; ResearchAgent packages state; DataAnalyst/Operations remain placeholders |
 | Quality | AgentEvaluator and Equaliator connected to coordination; evidence/citation preservation, support findings, bounded contradiction checks and attributed summaries | Deterministic checks, not semantic truth verification; no investigation HTTP endpoint |
-| Actions | Permission/approval contracts, action/verification scaffolds, in-memory audit | No real action execution or independent outcome verification |
+| Actions | ControlledActionPipeline connects existing permissions, trusted registered risk, approval policy, executor, independent verifier and durable local audit; explicit coordinator handoff | Server-side API with trusted callbacks; no domain/external actions registered, approval endpoint or restart/resume of pending requests |
 | Interface/browser | Orb, speech and MediaPipe gesture prototype; browser state/result stub | Frontend still calls `/ai` with random UUIDs; gestures are not authorization; browser stub has no driver |
 
 ## Completed module — Finish the knowledge flow (backend)
@@ -51,15 +51,24 @@ Status is `complete` only when all selected results are successful, error-free, 
 
 Quality measures actual success, reported confidence, evidence and errors. It verifies literal summary statements against supplied evidence text after normalizing case/whitespace/terminal punctuation, checks citation references, and detects identical explicit clauses with opposite `not` polarity. Unmatched paraphrases remain unverified. Agreement is wording agreement, and confidence is an average of valid reported scores, not a calibrated probability of truth.
 
+## Completed module — Controlled Actions
+
+The server-side `ControlledActionPipeline` accepts the existing ActionRequest with an agent and trusted identity/authorization context. Registration defines the tool, strict parameter schema, permission, risk and separate execution/verification callbacks. PermissionEngine checks the role grant; AgentCapabilityPolicy checks the agent allowlist and context grant. User, organization and agent identities must match. Existing membership tokens still grant knowledge reads only.
+
+The existing ApprovalPolicy makes READ and LOW automatic and requires human approval for HIGH_IMPACT. Caller-supplied `approved=True` cannot authorize the pipeline. A separate trusted host call records a same-tenant human decision with `actions.approve`; approval does not itself execute. Execution rechecks permission and is bound to the original request, agent and captured parameters. A denied request remains denied, and a repeated operation does not rerun its callback within the pipeline instance.
+
+The existing ActionExecutor invokes the registered handler and produces ActionResult. Every execution attempt then reaches ActionVerifier; registered verification checks independently observed state. Failed execution or verification cannot become success. Controlled results contain status, identity, ApprovalRequirement, safe ActionResult and VerificationResult, with no input payload, provider output, task/state or raw error text. Approval and execution decisions are recorded through the existing AuditLog, extended with a local JSON-lines journal. The pipeline requires that journal and blocks before execution if auditing fails.
+
+`MultiAgentCoordinator.submit_action` is an explicit host handoff using the existing agent registry. Investigation execution and returned tool-call metadata remain inert. No endpoint, browser, domain write tool, external side-effect integration or authentication extension was added.
+
 ## Verification and product limits
 
-- New coverage: **29/29 AI unit tests**, included in a **103/103** focused regression selection, and **7/7 PostgreSQL/pgvector integration tests**.
-- Full regression: AI **231 passed / 232 run**, retaining the sole pre-existing browser extraction failure; Django **126/126 passed**. Baseline at `a6d1b6e`: AI **202/203**, Django **119/119**. No new regression failures. Changed-file lint: **0 diagnostics**; 16 known diagnostics remain in untouched KnowledgeAgent/models files.
-- Django migration creation/drift checks and real Alembic upgrade/downgrade/upgrade/drift checks passed in a temporary test database. No migrations were applied to the developer's existing database.
-- Live Groq/Ollama/GitHub calls, a running Redis worker, semantic answer correctness, PDF-through-LLM behavior and frontend runtime/build were not verified by this module. The end-to-end fixture used plain text and fake providers with real pgvector queries.
-- Tokens are issued by an operator; there is no user sign-in, token-management UI or upload API. Old documents require embedding after the new migrations. Lost dispatch/process crashes can require manual retry.
-- Browser extraction still has a pre-existing string-versus-`BrowserResult` test mismatch. Persistent conversations, workflow resumption, automated risk detection and real controlled actions remain unimplemented.
+- New controlled-action tests: **34/34 passed**; focused AI regressions: **100/100 passed**. Full AI: **266 run, 265 passed, 1 failed**, the same browser extraction mismatch as baseline **232 run, 231 passed, 1 failed**. Full Django: **126/126 passed**, unchanged from baseline. Django system checks: **0 issues**; migration drift: **No changes detected**; real Alembic lifecycle/drift regression: passed with **no new upgrade operations**; offline Alembic SQL, Python compilation and `git diff --check`: passed. Changed-file Ruff: **0 diagnostics across 9 Python files**; **16 pre-existing diagnostics** remain in untouched files. No new regressions, schemas, dependencies or frontend changes. Exact commands, changed-file inventory and limitations are in [MEMORY.md](MEMORY.md).
+- Audit decisions persist locally; executable requests, payloads and approval state stay in memory. Restart requires a new request/approval. There is no approval expiry, distributed replay protection, rollback or automatic recovery of ambiguous effects. Callbacks and host-supplied authorization are trusted code; no human-authentication UI is provided.
+- Live Groq/Ollama/GitHub, running Redis workers, semantic answer correctness and frontend runtime/build remain unverified. Existing PostgreSQL/pgvector regressions use fake external providers.
+- Tokens remain operator-issued; frontend sign-in, token-management UI and upload API remain absent. Lost document dispatch/jobs can need manual retry.
+- Browser extraction retains its string-versus-BrowserResult test mismatch. Persistent conversations and workflow resumption remain pending.
 
 ## Next product increment
 
-The next roadmap module is **Connect controlled actions**: trusted risk classification, durable approval/audit, actual execution and independent verification. This module added only coordination and quality for existing trusted agents and read operations. See [Task.md](Task.md).
+The next unfinished roadmap module is **Finish browser work when needed**, starting with a scoped use case and driver under the controlled-action boundary. Browser work is not implemented here. See [Task.md](Task.md).

@@ -1,6 +1,6 @@
 # GROOT — Design decisions and implementation patterns
 
-Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `0d7d2da feat: add coordination and quality`. Setup, the knowledge backend, trusted read-only tools, and Coordination and Quality are committed. Controlled Actions is implemented and verified in the working tree; nothing was committed or pushed.
 
 ## Existing structure retained
 
@@ -84,7 +84,35 @@ Synthesis attributes original checked summaries in selection order and adds no n
 
 ### Authorization boundary
 
-No authentication or permission model changed. This is an internal coordinator invoked with trusted context; KnowledgeAgent continues its existing scoped RAG behavior. Agents that use bound read tools retain live membership/identity/permission/tenant checks inside the tools. Credentials never become coordinator arguments or tool-schema fields. The coordinator records returned tool-call metadata but does not execute it. No browser, write tool, action or autonomous agent-selection loop was added.
+No authentication or permission model changed. This is an internal coordinator invoked with trusted context; KnowledgeAgent continues its existing scoped RAG behavior. Agents that use bound read tools retain live membership/identity/permission/tenant checks inside the tools. Credentials never become coordinator arguments or tool-schema fields. The coordinator records returned tool-call metadata but does not execute it. Investigation execution adds no browser, write tool or autonomous agent-selection loop. Action proposals now have the separate explicit host handoff described below.
+
+## Implemented controlled-action design
+
+### One explicit orchestration boundary
+
+`ControlledActionPipeline` composes the existing permission, approval, executor, verification and audit components. The new registry declares trusted callbacks and metadata; it does not replace the existing general/read-only tool registries. ActionRequest, ActionResult, ApprovalRequirement, VerificationResult and AIRequestContext are reused. ControlledActionResult only joins identity, status and those existing outcomes. The registry is empty by default and has no external side effects until trusted host code registers a handler.
+
+The coordinator's additive `submit_action` resolves a registered agent and hands its explicit request/context to the pipeline. Normal investigations remain read-only at the coordinator boundary and do not dispatch tool-call metadata. No HTTP/API authentication, provider, frontend or database ownership change was needed.
+
+### Permission and approval are separate checks
+
+Submission checks the exact user/organization/agent identity match, existing role permission, agent tool allowlist and context permission. Trusted registration supplies risk; the existing ApprovalPolicy allows READ/LOW automatically and requires HIGH_IMPACT approval. Unknown risk values fail closed. Strict parameters reject unknown/coerced values and are serialized before approval, so mutating the caller's dictionary cannot change the approved target.
+
+A separate host `decide` call requires an authenticated same-tenant human context marked `human` with `actions.approve`. The marker is a host contract, not an authentication credential. Caller/model `approved=True` is ignored. Decisions are journaled before they change approval state. Approved actions wait for explicit execution, which checks supplied current grants again and binds the original identity/request/agent. A revoked supplied grant blocks execution; no live action-membership lookup or login endpoint is invented.
+
+### Execute, observe, report
+
+The existing executor supports a registered handler returning boolean success. The existing verifier supports a separate registered checker with original context and a fresh parameter snapshot. Every execution attempt reaches ActionVerifier, including handler failure; successful execution must also pass independent verification. Local-effect tests demonstrate a callback that changes observed state and a checker that rejects reported success when the effect is missing.
+
+Controlled ActionResults intentionally contain empty parameters; the joining result exposes only IDs, agent, policy, status and safe execution/verification outcomes. Task/state, payloads, arbitrary callback return data and raw error text are omitted rather than relying on a secret-name blacklist. Handler/checker exceptions are converted to generic failures. Legacy unregistered executor/verifier behavior stays compatible and is not the controlled authorization entry point.
+
+### Durable decisions and conservative recovery
+
+AuditLog now optionally stores AuditEvents in a flushed/fsynced local JSON-lines file and reloads them. Events record correlation IDs, original identity, registered metadata, approver identity, timestamps and safe error type; the controlled pipeline requires this mode. Required log failure before execution prevents effects. Log failure after execution still runs verification and produces `audit_failed` without repeating the callback.
+
+An instance lock protects transitions. A pre-callback indeterminate terminal claim prevents concurrent or reentrant duplication. Completed/failed/denied outcomes stay terminal. Journal decisions survive restart, but parameter payloads and executable approvals stay in memory; restart cannot resume an old action. Effects after a crash or failed journal write need operator review before any new request. No approval expiry, automatic rollback, distributed execution/replay control, audit rotation/tamper resistance or durable workflow recovery is implemented.
+
+Registered handlers and host authorization remain trusted Python code. Domain handlers must use preserved tenant/user context to enforce data scope. This module adds no concrete domain actions, external integrations, approval UI or browser driver.
 
 ## Existing agent and control maturity
 
@@ -92,7 +120,7 @@ No authentication or permission model changed. This is an internal coordinator i
 - ResearchAgent packages supplied state; DataAnalyst and Operations still return placeholder summaries.
 - The coordinator executes explicit selections sequentially, evaluates outputs and builds attributed summaries with status/limitations. LangGraph still wraps one node without checkpointing or autonomous planning.
 - Equaliator and AgentEvaluator are connected to coordination with the support/contradiction limits above. They do not establish independent factual correctness.
-- PermissionEngine and AgentCapabilityPolicy are connected to the trusted read-tool executor. Approval, action execution, verification and audit remain separate scaffolds; audit storage is in memory.
+- PermissionEngine and AgentCapabilityPolicy guard read tools and the new controlled pipeline. The pipeline joins ApprovalPolicy, registered ActionExecutor/ActionVerifier behavior and durable local AuditLog decisions. Optional legacy low-level behavior is retained; pending action recovery is not implemented.
 
 ## Interface and scope boundary
 
@@ -100,4 +128,8 @@ No frontend files changed. The dark orb/HUD, speech and MediaPipe interactions s
 
 ## Verified design checks
 
-The 29 new AI tests cover ordered multi-agent execution, original context, evaluation integration and metrics, complete/partial/failed/incomplete status, exceptions, invalid result identities, unsupported text/citations, missing/invalid confidence, literal contradictions, KnowledgeAgent evidence preservation, empty retrieval and no tool-call dispatch. The focused AI selection passed 103/103. Seven new PostgreSQL/pgvector tests coordinate actual KnowledgeAgent retrieval and guarded reads using fake external providers; they verify tenant isolation, permissions, expired/revoked credentials, revocation between agents and rejected mutation without data changes. Full AI: 231/232 with the baseline browser failure; full Django: 126/126. Migration, compilation, diff and changed-file lint checks passed. See [MEMORY.md](MEMORY.md).
+New controlled-action tests: **34/34 passed**; focused AI regressions: **100/100 passed**. Full AI: **266 run, 265 passed, 1 failed**, the same browser extraction mismatch as baseline **232 run, 231 passed, 1 failed**. Full Django: **126/126 passed**, unchanged from baseline. Django system checks: **0 issues**; migration drift: **No changes detected**; real Alembic lifecycle/drift regression: passed with **no new upgrade operations**; offline Alembic SQL, Python compilation and `git diff --check`: passed. Changed-file Ruff: **0 diagnostics across 9 Python files**; **16 pre-existing diagnostics** remain in untouched files. No new regressions, schemas, dependencies or frontend changes. Exact commands, changed-file inventory and limitations are in [MEMORY.md](MEMORY.md).
+
+Coverage includes automatic/approved execution, denied/mismatched authority, tenant/context preservation, approval snapshot integrity, independent observed-state verification, failures, secret omission, audit persistence/failure, restart rejection and concurrent/reentrant replay protection. Prior knowledge, read-tool and coordination suites remain in the full regressions.
+
+Next unfinished roadmap module: **Finish browser work when needed**.

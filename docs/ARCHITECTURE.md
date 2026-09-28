@@ -1,6 +1,6 @@
 # GROOT — Current architecture
 
-Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `0d7d2da feat: add coordination and quality`. Setup, the knowledge backend, trusted read-only tools, and Coordination and Quality are committed. Controlled Actions is implemented and verified in the working tree; nothing was committed or pushed.
 
 ## Services and ownership
 
@@ -82,6 +82,39 @@ Synthesis is deterministic attribution of checked original summaries. Failed or 
 
 This remains a server-side API. Existing callers authenticate before supplying KnowledgeAgent context; bound read tools independently recheck their credentials and policy on every execution. The coordinator does not grant permissions or add an authentication endpoint. `/rag`, `/ai`, data ownership, sessions, models and migrations retain their existing contracts. Real PostgreSQL integration covers KnowledgeAgent plus a registered agent using the existing read-only tool registry, tenant isolation and revocation between reads.
 
+## Controlled actions
+
+```mermaid
+flowchart LR
+    HOST[Trusted host and registered agent] --> REQUEST[Existing ActionRequest]
+    REQUEST --> AUTH[PermissionEngine and AgentCapabilityPolicy]
+    AUTH --> RISK[Registered ActionRisk]
+    RISK --> POLICY[Existing ApprovalPolicy]
+    POLICY -->|HIGH_IMPACT| HUMAN[Same-tenant human decision: actions.approve]
+    POLICY -->|READ or LOW| EXEC[Existing ActionExecutor]
+    HUMAN -->|Approved, permission rechecked| EXEC
+    EXEC --> VERIFY[Existing ActionVerifier]
+    VERIFY --> RESULT[ControlledActionResult]
+    AUTH -. decisions .-> AUDIT[Existing AuditLog with local journal]
+    HUMAN -. decisions .-> AUDIT
+    EXEC -. outcomes .-> AUDIT
+    VERIFY -. outcomes .-> AUDIT
+```
+
+`actions/registry.py` holds trusted ActionDefinition entries: name, tool, existing Permission/ActionRisk, strict Pydantic ActionParameters, execution callback and independent verification callback. Duplicate names, invalid risk values and permissive argument schemas are rejected. The registry starts empty. No model/provider supplies risk or callbacks, and no existing read-only tool is made writable.
+
+`actions/pipeline.py` owns orchestration, using the existing permission engine, agent policy, approval policy, executor, verifier and audit objects. It adds only ControlledActionResult and private pending state; request, execution, verification, approval and identity types are reused. The result contains an operation UUID, existing AIRequestContext, agent name, status and optional ApprovalRequirement/ActionResult/VerificationResult. Only `succeeded` means success.
+
+Submission validates and snapshots JSON parameters, checks matching identities plus both authorization layers, classifies by registered risk and evaluates ApprovalPolicy. READ/LOW execute automatically. HIGH_IMPACT waits for `decide`, which requires a same-organization AuthorizationContext, `agent_name='human'` and PermissionEngine's `actions.approve` grant. The host must establish that human identity and grant. The input ActionRequest.approved flag is never proof of approval. Approval records a decision; a separate `execute` call rechecks current supplied permissions and binds the original user/organization/request/agent before using the captured payload.
+
+`ActionExecutor(registry)` invokes the trusted handler with the original AgentContext. `ActionVerifier(registry)` invokes its separate checker with a fresh copy of the captured parameters when execution succeeds; every execution attempt still goes through the verifier, including a handler exception. Only literal boolean success is accepted. Controlled results omit parameters and raw handler/checker output. Legacy unregistered executor/verifier behavior remains for existing direct callers; these low-level objects are not the authorization boundary.
+
+AuditEvent now carries operation/request IDs, registered action/tool/risk, optional approver ID, timestamp and error type. `AuditLog(path)` appends JSON-lines records with flush/fsync and reloads them after restart; corrupt records fail closed. The existing no-path in-memory mode remains, but the controlled pipeline requires a journal. Audit records/results omit request parameters, task, state, provider output and raw exception messages. Required audit failures before execution prevent the callback. After execution, audit failure still permits verification, returns `audit_failed` and prevents a retry of that operation.
+
+An instance lock serializes decisions/execution. The operation is marked indeterminate before calling a handler; concurrent/reentrant attempts cannot repeat it, and terminal results are retained. Journal decisions persist, but payloads and executable approvals are process-local. Old operation IDs cannot execute after restart. A crash or audit failure after an effect needs operator review; no automatic retry, distributed exactly-once guarantee or rollback exists. The host provisions and secures the journal path for one process; it is not a tamper-proof audit service.
+
+`MultiAgentCoordinator.submit_action` resolves the agent through its existing supervisor registry and submits explicitly to the pipeline. Normal investigation execution, synthesis and tool-call metadata never invoke actions. No action HTTP route, authentication extension, domain action, database table/migration or external provider was added. Registered callbacks are trusted to enforce their data-domain tenant scope using the preserved context.
+
 ## Document processing and embeddings
 
 1. Existing `process_document` runs the extraction/normalization/chunk pipeline inside a Django transaction with a document-row lock.
@@ -110,8 +143,10 @@ Similarity search retains matching model/dimensions and cosine ordering. A param
 
 ## Other components and remaining boundaries
 
-GitHub is still the only concrete connector, with organization/source/external-ID event idempotency. Coordination remains explicitly selected and sequential; LangGraph wraps a single node without persistence. Quality assessment is now connected with the deterministic limits above. ResearchAgent packages state; DataAnalyst/Operations are placeholders. Action execution/verification and audit remain scaffolds or memory-only.
+GitHub is still the only concrete connector, with organization/source/external-ID event idempotency. Coordination remains explicitly selected and sequential; LangGraph wraps a single node without persistence. Quality assessment is now connected with the deterministic limits above. ResearchAgent packages state; DataAnalyst/Operations are placeholders. Controlled actions now use registered callbacks and independent verification through the existing components; the required local audit journal persists decisions. Pending action payloads are not recoverable workflows.
 
 The root dotenv/process-environment precedence, URL escaping, dependency pins and preflight from the setup module remain. The shared embedding provider factory now serves both query and worker paths and honors `OLLAMA_BASE_URL`. Local hash vectors remain nonsemantic. Production secret/host settings still need hardening. No conversation store, durable workflow, MongoDB, MCP, CI, or container deployment was added.
 
-Verification: 29 new AI tests; focused AI selection 103/103; new PostgreSQL coordination tests 7/7; full AI 231/232 (same baseline browser failure); full Django 126/126. Django/Alembic drift, offline migration SQL, compilation and diff checks passed. Changed-file lint reports zero diagnostics. See [MEMORY.md](MEMORY.md) for commands, baseline comparison and known untouched-file diagnostics.
+New controlled-action tests: **34/34 passed**; focused AI regressions: **100/100 passed**. Full AI: **266 run, 265 passed, 1 failed**, the same browser extraction mismatch as baseline **232 run, 231 passed, 1 failed**. Full Django: **126/126 passed**, unchanged from baseline. Django system checks: **0 issues**; migration drift: **No changes detected**; real Alembic lifecycle/drift regression: passed with **no new upgrade operations**; offline Alembic SQL, Python compilation and `git diff --check`: passed. Changed-file Ruff: **0 diagnostics across 9 Python files**; **16 pre-existing diagnostics** remain in untouched files. No new regressions, schemas, dependencies or frontend changes. Exact commands, changed-file inventory and limitations are in [MEMORY.md](MEMORY.md).
+
+Next roadmap module: **Finish browser work when needed**. Host approval interfaces, approval expiry and durable executable workflow recovery remain separate limitations.

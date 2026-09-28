@@ -1,6 +1,6 @@
 # GROOT — Engineering rules
 
-Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `0d7d2da feat: add coordination and quality`. Setup, the knowledge backend, trusted read-only tools, and Coordination and Quality are committed. Controlled Actions is implemented and verified in the working tree; nothing was committed or pushed.
 
 ## Preserve ownership and service boundaries
 
@@ -41,6 +41,18 @@ Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read
 - Build an attributed summary only from passed outputs with evidence text. Detected conflicts withhold combined conclusions. Preserve findings/limitations; do not fabricate a synthesis or dispatch returned tool calls, actions or additional agents.
 - Coordination does not authenticate an untrusted context or create grants. Existing callers authenticate KnowledgeAgent requests; existing read tools still perform their own live authorization. Keep the global `/ai` registry health-only.
 
+## Enforced controlled-action contracts
+
+- Enter through ControlledActionPipeline; coordinator action submission is an explicit host call. Investigation summaries, quality scores, returned tool-call metadata, gestures and incoming `approved` flags cannot authorize execution.
+- Register trusted action/tool identifiers, Permission, ActionRisk, strict extra-forbidding parameter schema, handler and independent checker. Risk comes from registration. Reject invalid risks; the existing policy keeps READ/LOW automatic and HIGH_IMPACT approval-required.
+- Require matching user/organization/agent authority, the PermissionEngine role grant and AgentCapabilityPolicy's explicit tool mapping, context grant and allowlist. Recheck current supplied authority before executing a pending approved action. Knowledge credentials confer no action grant.
+- Bind approval to the original operation, user/organization/request/agent and serialized parameter snapshot. `decide` requires a same-tenant human host context with `actions.approve`; the host authenticates the human. Approval alone does not execute; denial is terminal. Never accept untrusted roles or the human marker from a model or request body as authenticated authority.
+- Route each execution through the existing ActionExecutor and ActionVerifier. Only literal boolean callback success counts. Failed execution cannot be upgraded by a checker; failed verification stays failed. Handler/checker exceptions yield safe failures. Trusted implementations must scope domain reads/writes to the preserved organization and user context; Python callbacks are not sandboxed.
+- Require AuditLog's local journal for the pipeline. Record request/authorization/risk/approval/execution/verification decisions, identities and timestamps. Complete mandatory pre-execution writes before invoking the callback. If auditing fails after execution, still verify, return `audit_failed` and do not automatically execute again.
+- Keep parameters, task/state, raw output and raw exception text out of controlled results and audit. Registered identifiers and static result/error metadata are the only descriptive values returned. Existing low-level legacy executor behavior is retained for compatibility; it is not a safe entry point for untrusted callers.
+- Prevent duplicate execution within an instance, including concurrent/reentrant requests. Claim the operation before calling a handler and retain terminal outcomes. Restart rejects old operations: durable decision records are not executable approval recovery. No rollback or distributed exactly-once guarantee is claimed.
+- Provision a journal owned by one application process. Do not claim tamper resistance, retention/rotation, approval expiry, a user-facing approval flow or crash recovery; these are not implemented. No default domain/external actions are registered.
+
 ## Enforced document/vector lifecycle
 
 - Preserve extraction results and deterministic chunk ordering/replacement. Embedding readiness is separate from extraction readiness; only documents with both states ready may be retrieved.
@@ -56,13 +68,13 @@ Both Python services locate the root `.env` independently of launch directory; e
 
 ## Still required before further automation
 
-The read-only knowledge tools now enforce trusted authorization, including direct orchestrator calls. Other tools still need a trusted execution boundary; the generic capability and supplied-role contracts alone do not provide one. High-impact actions need durable approval, actual tool execution, durable audit and independent outcome checks. Current executor/verifier/audit do not provide these guarantees. Frontend gestures are not approval.
+The controlled pipeline now joins permissions, policy, approval decisions, execution, verification and local audit. Trusted host authentication and callback tenant scoping remain essential. An action/approval endpoint, domain handlers, expiry, recoverable workflows and operational audit hardening are not provided. Next roadmap module: **Finish browser work when needed**, with a scoped use case under this boundary. Frontend gestures remain presentation only.
 
 ## Verification and working conventions
 
 - Implement only the current roadmap module. Add focused tests, run applicable regression suites and checks, then update PRD, ARCHITECTURE, RULES, DESIGN, Task and MEMORY before reporting. Do not commit/push unless requested.
-- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in this module. Baseline AI: 202/203; final: 231/232, with the same browser extraction failure. Baseline Django: 119/119; final: 126/126. New suites: AI 29/29 and PostgreSQL 7/7; relevant AI selection 103/103.
+- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in this module. Baseline AI: 231/232; final: 265/266, with the same browser extraction failure. Baseline and final Django: 126/126. New controlled tests: 34/34; relevant AI selection: 100/100. System checks: 0 issues; migration drift: no changes; real/offline Alembic, compilation and diff checks passed. No new regression failures.
 - Database integration tests must target the temporary Django test database. Tests involving vectors apply both migration systems there and clean up AI tables before Django teardown; document-only tool tests use the Django tables. The tests do not migrate the developer database.
 - Distinguish real database verification from fake external providers. Live Groq/Ollama/GitHub, worker/broker execution and frontend builds were not verified here.
-- Ruff 0.16.9 reports zero diagnostics on this module’s seven changed/new Python files. HEAD comparison had one Equaliator import-order diagnostic, resolved when editing its imports. The untouched KnowledgeAgent/models files still report their 16 pre-existing diagnostics. Preserve unrelated code instead of suppressing those diagnostics. No Python type-checker configuration exists; compilation is not a static type check.
+- Ruff 0.16.9 reports zero diagnostics on this module’s nine changed/new Python files. HEAD versions of the six existing Python files also report zero. The untouched KnowledgeAgent/models files retain 16 diagnostics. No suppressions were added. No Python type-checker configuration exists; compilation is not a static type check. See [MEMORY.md](MEMORY.md) for files, commands, exact results and limitations.
 - Before future frontend code changes, read `frontend/AGENTS.md` and the relevant bundled Next.js guide. The current module changes no frontend files.

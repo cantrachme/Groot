@@ -8,10 +8,13 @@ from .result import AgentResult
 from .supervisor import AgentSelection, AgentSupervisor
 
 if TYPE_CHECKING:
+    from ..actions.models import ActionRequest
+    from ..actions.pipeline import ControlledActionPipeline, ControlledActionResult
     from ..equaliator.evaluator import Equaliator
     from ..equaliator.models import EqualiatorResult
     from ..evaluation.agent_evaluator import AgentEvaluator
     from ..evaluation.models import EvaluationResult
+    from ..permissions.models import AuthorizationContext
 
 
 @dataclass(frozen=True)
@@ -34,7 +37,8 @@ class MultiAgentCoordinator:
 
     The caller supplies an authenticated context. This is not an authentication
     endpoint or a sandbox for registered Python agents. Bound read tools still
-    authorize each execution; no tool calls or actions are dispatched here.
+    authorize each execution. Investigations never dispatch tool calls or actions;
+    the host can explicitly submit a proposal through the controlled pipeline.
     """
 
     def __init__(
@@ -51,6 +55,24 @@ class MultiAgentCoordinator:
         self.supervisor = supervisor
         self.evaluator = evaluator if evaluator is not None else AgentEvaluator()
         self.equaliator = equaliator if equaliator is not None else Equaliator()
+
+    def submit_action(
+        self,
+        request: ActionRequest,
+        *,
+        agent_name: str,
+        context: AgentContext,
+        authorization: AuthorizationContext,
+        pipeline: ControlledActionPipeline,
+    ) -> ControlledActionResult:
+        """Explicit host handoff; investigation output never triggers actions itself."""
+        agent = self.supervisor.registry.get(agent_name)
+        return pipeline.submit(
+            request,
+            agent=agent,
+            context=context,
+            authorization=authorization,
+        )
 
     def execute(
         self,

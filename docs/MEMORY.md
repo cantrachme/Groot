@@ -1,6 +1,6 @@
 # GROOT — Compact project memory
 
-Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `0d7d2da feat: add coordination and quality`. Setup, the knowledge backend, trusted read-only tools, and Coordination and Quality are committed. Controlled Actions is implemented and verified in the working tree; nothing was committed or pushed.
 
 ## Current architecture and completed modules
 
@@ -9,24 +9,43 @@ Django owns users, memberships, company/document/chunk data, knowledge tokens an
 - Setup: compatible dependency declarations, shared environment-based PostgreSQL/Redis configuration, example environments, read-only pgvector preflight and setup instructions.
 - Knowledge backend: authenticated `/rag` → KnowledgeAgent → shared RAGService → tenant-scoped vector/text retrieval → answer, evidence and citation IDs. Empty authorized context returns a fixed insufficient-context response without an LLM call. Processing dispatches embeddings after commit; document locks and cascading chunk foreign keys coordinate replacement/deletion.
 - Trusted Read-Only Tools (committed `a6d1b6e`): private registry for ready-document inventory and ordered chunk inspection. Each execution checks live membership, both integer IDs, PermissionEngine, AgentCapabilityPolicy, tenant scope and PostgreSQL read-only transaction semantics. Direct tool use and the existing Orchestrator are verified. `/ai` remains health-only; `/rag` still uses its existing RAG path.
-- **Coordination and Quality:** existing coordinator now returns ordered agent outputs, AgentEvaluator evaluations, Equaliator assessment, overall status, attributed summary, evidence/citations and explicit limitations. Agent failures are isolated; original context is preserved. No endpoint, new authentication, write/action dispatch, browser or frontend capability was added.
+- **Coordination and Quality (committed `0d7d2da`):** existing coordinator now returns ordered agent outputs, AgentEvaluator evaluations, Equaliator assessment, overall status, attributed summary, evidence/citations and explicit limitations. Agent failures are isolated; original context is preserved. No endpoint, new authentication, write/action dispatch, browser or frontend capability was added.
+
+- **Controlled Actions:** trusted action registry and explicit coordinator handoff to an orchestration layer reusing permissions, policy, executor, verifier and audit. READ/LOW run automatically; HIGH_IMPACT needs a separately authorized human decision. Local audit decisions persist; pending execution state does not resume after restart. No domain/external action or endpoint was added.
 
 ## Files changed in this module
 
 | File | Implemented change |
 | --- | --- |
-| `ai_engine/app/agents/coordinator.py` | Extended existing CoordinationResult; evaluator/Equaliator integration; status, attribution, evidence/citation aggregation and limitations |
-| `ai_engine/app/agents/supervisor.py` | Optional per-agent failure capture and result-identity validation; default direct-call exception behavior preserved |
-| `ai_engine/app/evaluation/agent_evaluator.py` | Existing four metrics plus groundedness; findings, invalid confidence handling and stricter passed flag |
-| `ai_engine/app/evaluation/support.py` | Shared literal statement, usable evidence, citation reference and confidence checks |
-| `ai_engine/app/equaliator/evaluator.py` | Shared support findings, errors/invalid confidence completion gates, evidence coverage, bounded opposite-polarity conflicts and valid-score averaging |
-| `ai_engine/tests/test_coordination_quality.py` | 29 new unit tests covering coordination, quality, KnowledgeAgent results and compatibility |
-| `backend/core/test_coordination_quality.py` | 7 real PostgreSQL/pgvector tests coordinating knowledge and guarded reads, including denied access and mutation rejection |
-| `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `docs/DESIGN.md`, `docs/Task.md`, `docs/MEMORY.md` | Verified capability, architecture, rules, design, roadmap and results |
+| `ai_engine/app/actions/registry.py` | Trusted ActionDefinition/ActionRegistry and strict ActionParameters; registered permission/risk and separate handler/checker callbacks |
+| `ai_engine/app/actions/pipeline.py` | ControlledActionPipeline/ControlledActionResult; existing component orchestration, bound approval, safe outcomes, audit gating and instance replay protection |
+| `ai_engine/app/actions/executor.py` | Optional registered callback execution with original context, boolean outcome and generic handler failure; legacy behavior retained |
+| `ai_engine/app/verification/verifier.py` | Optional independent registered checker with context/snapshot, generic checker failure; legacy behavior retained |
+| `ai_engine/app/approvals/policy.py` | Reject unknown risk values; READ/LOW automatic and HIGH_IMPACT requiring approval remain unchanged |
+| `ai_engine/app/audit/models.py` | Existing AuditEvent extended with correlation IDs, registered metadata, approver identity and timestamp; integer/UUID identity support |
+| `ai_engine/app/audit/log.py` | Optional local JSON-lines persistence/reload with flush/fsync; existing in-memory mode retained |
+| `ai_engine/app/agents/coordinator.py` | Explicit `submit_action` through the existing supervisor registry; normal investigation execution unchanged |
+| `ai_engine/tests/test_controlled_actions.py` | 34 new tests of authorization, approval, execution/verification, independent observed effects, secrets, audit, context and replay/restart behavior |
+| `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `docs/DESIGN.md`, `docs/Task.md`, `docs/MEMORY.md` | Current verified capability, architecture, contracts, design, roadmap and verification |
 
-No existing test files, dependencies, models, migrations, HTTP routes, read-tool permission checks, frontend files, browser code or action scaffolds were changed.
+Total: 9 Python files and all 6 living docs. No existing test files, dependencies, Django/SQLAlchemy models, migrations, HTTP routes, read-tool permission checks, frontend or browser files changed.
 
-## Coordination design decisions and operational contract
+## Controlled-action decisions and operational contract
+
+1. Use `ControlledActionPipeline(registry, AuditLog(path))`. The registry starts empty. Trusted host code supplies safe registered names, existing Permission/ActionRisk, an ActionParameters subclass with strict/extra-forbid configuration, and separate boolean execution/checker callbacks. Duplicate definitions and invalid risk/schema definitions fail. These callbacks are trusted code, not sandboxed plugins.
+2. `submit(ActionRequest, agent=..., context=..., authorization=...)` validates a positive integer or UUID user/organization, UUID request, registered agent name, tool match and strict parameters. It snapshots parameters as JSON before approval. Context and role authorization identities must match exactly. PermissionEngine checks the registered permission; AgentCapabilityPolicy separately checks the allowlist and explicit permission mapping/context grant. Knowledge tokens do not grant action authority.
+3. Risk comes from the trusted definition, never parameters/model output. ApprovalPolicy retains READ/LOW automatic and HIGH_IMPACT approval-required behavior and now rejects unknown risk types. An input ActionRequest.approved boolean is validated but ignored as authority. Automatic actions are authorized by policy and internally receive the executor's existing approved flag.
+4. HIGH_IMPACT returns `approval_required` without execution. `decide(operation_id, approver=..., approved=...)` requires a same-tenant AuthorizationContext, positive integer/UUID human user, `agent_name='human'` and `actions.approve` through PermissionEngine. The trusted host must authenticate this human and derive the grant; the marker is not cryptographic authentication. There is no new approval endpoint/UI. The decision is durably logged before state changes; denial is terminal. Approval does not itself execute.
+5. `execute` binds the original user/organization/request/agent, rechecks current supplied grants and reevaluates policy. A revoked supplied grant blocks execution even after approval. This is not a live membership lookup for action grants: the host supplies fresh authority. Mutable caller parameters cannot change the approved target. Original AgentContext, including task/state, reaches both trusted callbacks; handlers must leave shared context unchanged and enforce domain tenant/user scope.
+6. The existing executor invokes the registered callback and returns ActionResult. Every attempt flows through ActionVerifier, including handler failure. Its independent registered checker runs only for successful execution and receives a fresh snapshot, so handler parameter mutation cannot change the verification target. Boolean True is required; reported success without the observed effect is rejected in the local-effect test. Failed execution can never be upgraded by verification.
+7. ControlledActionResult joins existing AIRequestContext, ApprovalRequirement, ActionResult and VerificationResult with operation ID, agent and status. Statuses include invalid, unauthorized, approval_required, approved, denied, succeeded, execution_failed, verification_failed, audit_failed and indeterminate. Only succeeded means success. Invalid resumption/approval authority raises generic exceptions without returning another tenant's details. Interrupted/reentrant execution remains indeterminate until the owning call completes; process-control BaseExceptions are not swallowed.
+8. Returned ActionResult parameters are empty, verification text is static, and raw provider output/error messages are omitted. Audit contains static event names, validated IDs, registered action/tool/risk, timestamp, approver ID and error class. Task/state and all input parameters are excluded, including harmless fields, to avoid relying on a secret-name blacklist. The legacy no-registry executor still echoes parameters for compatibility and is not the controlled entry point.
+9. AuditLog optionally appends JSON-lines records using restrictive creation permissions, flush and fsync. It reloads existing decisions, including integer/UUID identities; corrupt/truncated records prevent startup. The host provisions a writable parent and secures the journal for one process. No-path AuditLog remains memory-only for legacy callers, but ControlledActionPipeline requires a path.
+10. The pipeline journals request, authorization, registered risk, policy, approval, execution-start, execution and verification outcomes; rejection/replay decisions are recorded too. Required pre-execution log failures block effects. A post-execution log failure still reaches the verifier and returns audit_failed without a retry. That status can coexist with a successful effect and verification, so callers must review the outcome rather than assume no effect occurred.
+11. An instance RLock serializes state transitions/callbacks. Before invoking a handler, the operation is marked indeterminate, preventing concurrent/reentrant duplicate execution. Terminal outcomes are retained and never rerun. Approval/journal decisions survive restart, but payloads and executable state are process-local: old operation IDs fail closed and require a fresh request/approval. The journal is not an executable workflow store. No approval expiry, retention, distributed replay guarantee, transaction rollback or crash recovery is implemented. Review ambiguous effects before submitting a new request.
+12. `MultiAgentCoordinator.submit_action` resolves the existing registered agent and forwards an explicit host proposal. Normal coordinator execute/synthesis does not dispatch tool_calls or turn quality scores into approvals. Existing investigation, knowledge, read-only tool and authentication behavior is preserved. No domain action/provider, browser integration, endpoint, schema, dependency or frontend work was added.
+
+## Retained coordination design decisions — committed `0d7d2da`
 
 1. Keep `MultiAgentCoordinator.execute(selection, context)` as the entry point. AgentSelection, the registry, supervisor and existing one-node AgentGraph remain in use. Every agent receives the same original AgentContext object, including IDs/request/task/permissions/state. No previous output replaces the query or task. Shared state can contain a live Session; trusted agents must leave it unchanged.
 2. The coordinator opts into `AgentSupervisor.execute(..., capture_failures=True)`. Each selected name has one ordered result; unknown agents, raised Exceptions, wrong result types or mismatched result names become failed AgentResults and execution continues. Raw exception messages are omitted; the error retains the exception class name. Direct supervisor use defaults to existing raise behavior. BaseExceptions such as interrupts are not captured.
@@ -40,7 +59,7 @@ No existing test files, dependencies, models, migrations, HTTP routes, read-tool
 10. Contradiction checking is deliberately narrow: identical clauses using `is/are/was/were/has/have/had/can/will/does/do/did` with versus without `not`, excluding `not only`. Broader semantic, numeric and causal conflicts are not inferred. Conflicts are deterministic findings in result order; they do not prove which agent is correct.
 11. Overall status precedence: no results → incomplete; no successful error-free results → failed; mixed execution outcomes → partial; all evaluations passed plus Equaliator preliminary completion plus evidence text for every result → complete; otherwise incomplete. Thus the legacy Equaliator structural completion flag alone is not the overall status. Missing confidence alone is a reported limitation, not a failure. Empty KnowledgeAgent retrieval is incomplete despite its successful-execution flag.
 12. Synthesis attributes original passed summaries with evidence text, in order. It adds no new LLM-generated claims. Failed/unsupported summaries are omitted; any detected conflict withholds the combined conclusion. When no summary qualifies, report no supported conclusion. Limitations carry findings, absent confidence/text and the heuristic scope of the checks.
-13. This is a server-side coordinator, not an authentication endpoint. Existing callers authenticate KnowledgeAgent requests and supply trusted context. Bound read tools continue to recheck credentials, membership, identity, allowlist and permissions on each execution. The coordinator creates no grants, changes no tenant scope and never dispatches tool-call metadata, actions, additional agents or browser work.
+13. This is a server-side coordinator, not an authentication endpoint. Existing callers authenticate KnowledgeAgent requests and supply trusted context. Bound read tools continue to recheck credentials, membership, identity, allowlist and permissions on each execution. Normal investigation execution creates no grants, changes no tenant scope and never dispatches tool-call metadata, actions, additional agents or browser work. Explicit host action submission uses the separate controlled pipeline described above.
 
 ## Retained read-tool decisions and contracts — committed `a6d1b6e`
 
@@ -57,34 +76,33 @@ No existing test files, dependencies, models, migrations, HTTP routes, read-tool
 
 ## Exact verification results and commands
 
-Python: existing `.venv/bin/python` (3.14.4). Commands are from repository root unless specified. Baselines ran on clean `a6d1b6e` before changes. Existing tests were not edited, skipped or suppressed.
+Python: existing `.venv/bin/python` (3.14.4). Commands are from repository root unless specified. Baselines ran on clean `0d7d2da` before changes. Existing tests were not edited, skipped or suppressed.
 
 | Check | Command / method | Exact result |
 | --- | --- | --- |
-| Baseline AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 203 run; 202 passed; 1 failed |
-| Baseline Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 119 run; 119 passed |
-| Focused new AI | `.venv/bin/python -m unittest ai_engine.tests.test_coordination_quality` | 29 run; 29 passed |
-| Focused AI regression | `.venv/bin/python -m unittest ai_engine.tests.test_coordination_quality ai_engine.tests.test_multi_agent_coordinator ai_engine.tests.test_agent_supervisor ai_engine.tests.test_agent_graph ai_engine.tests.test_agent_evaluator ai_engine.tests.test_equaliator ai_engine.tests.test_evaluation_models ai_engine.tests.test_knowledge_agent ai_engine.tests.test_read_only_tools ai_engine.tests.test_permission_engine` | 103 run; 103 passed |
-| Focused PostgreSQL | `../.venv/bin/python manage.py test core.test_coordination_quality --noinput` from `backend/` | 7 run; 7 passed |
-| Final full AI regression | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 232 run; 231 passed; same 1 failure |
-| Final full Django regression | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 126 run; 126 passed |
+| Baseline AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 232 run; 231 passed; 1 failed |
+| Baseline Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 126 run; 126 passed |
+| Focused new AI | `.venv/bin/python -m unittest ai_engine.tests.test_controlled_actions` | 34 run; 34 passed |
+| Focused AI regressions | `.venv/bin/python -m unittest ai_engine.tests.test_controlled_actions ai_engine.tests.test_action_execution ai_engine.tests.test_action_verification ai_engine.tests.test_approval_policy ai_engine.tests.test_audit_log ai_engine.tests.test_permission_engine ai_engine.tests.test_agents ai_engine.tests.test_coordination_quality` | 100 run; 100 passed |
+| Final full AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 266 run; 265 passed; same 1 failure |
+| Final full Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 126 run; 126 passed |
 | Django checks | `.venv/bin/python backend/manage.py check` | 0 issues, 0 silenced |
 | Django migration drift | `.venv/bin/python backend/manage.py makemigrations --check --dry-run` | No changes detected |
-| Python compilation | `.venv/bin/python -m compileall -q ai_engine/app ai_engine/alembic backend/core backend/config` | Passed |
+| Python compilation | `.venv/bin/python -m compileall -q ai_engine/app ai_engine/alembic ai_engine/tests backend/core backend/config` | Passed |
 | Offline Alembic | `.venv/bin/python -m alembic -c ai_engine/alembic.ini upgrade head --sql` | Both existing migrations generated successfully |
-| Live migration checks | Django temporary test DB plus Alembic; existing knowledge-flow downgrade/orphan seed/upgrade/drift regression within full Django suite | Passed; no new upgrade operations detected |
-| Changed-file lint | Ruff 0.16.9 `check` on the 7 Python files listed above; HEAD versions of 4 existing files checked via `git show HEAD:<path>` piped to Ruff `--stdin-filename <path> -` | Baseline: 1 Equaliator I001; final: 0 diagnostics. Import order corrected while editing; no suppressions |
-| Known untouched-file lint | Ruff `check --output-format json backend/core/models.py ai_engine/app/agents/knowledge.py` | 16 existing diagnostics: 14 RUF012, 1 PIE794, 1 ISC004; files unchanged |
+| Live migration checks | Existing Django temporary test DB and Alembic downgrade/orphan seed/upgrade/drift regression within full Django suite | Passed; no new upgrade operations detected |
+| Changed-file lint | Ruff 0.16.9 `check` on the 9 Python files listed above; HEAD versions of the 6 existing files checked with `git show HEAD:<path>` piped to Ruff `--stdin-filename <path> -` | Baseline: 0 diagnostics; final: 0 diagnostics |
+| Known untouched lint | Ruff `check --output-format json backend/core/models.py ai_engine/app/agents/knowledge.py` | 16 existing diagnostics: 14 RUF012, 1 PIE794, 1 ISC004; files unchanged |
 | Patch formatting | `git diff --check` | Passed |
 
-Ruff binary `/tmp/groot-knowledge-lint/bin/ruff` was already available; no dependencies were installed or changed. No configured/installed mypy or pyright was found, so no static type check is claimed. Frontend checks were not applicable.
+Ruff binary `/tmp/groot-knowledge-lint/bin/ruff` was already available; no dependencies were installed/changed. No configured/installed mypy or pyright was found; no static type check is claimed. Frontend checks were not applicable. Django/Alembic migrations were exercised only in the temporary test database; no migrations were applied to the developer database.
 
-New PostgreSQL tests explicitly target only the Django-selected `test_` database, apply existing Django/Alembic migrations there, clean up AI tables and dispose the test engine. They exercise real KnowledgeAgent/RAG/pgvector plus registered readers using the unchanged guarded read registry. Only embedding/LLM providers are fake. Coverage includes preserved evidence/citations, excluded foreign data, denied agent/context permissions and identities, invalid/expired/revoked tokens, revocation between agents, empty foreign reads, rejected mutation and unchanged rows. No migrations were applied to the developer database.
+New tests use trusted local callbacks, an observed local state change and temporary audit journals; they make no external side effects or provider calls. Existing full Django regressions retain real PostgreSQL/pgvector, knowledge/read-tool isolation and coordination coverage with fake external embedding/LLM providers. An early new-test helper incorrectly assumed zero prior executions in a second scenario; it was corrected to compare the execution count before/after approval. No pre-existing test was modified.
 
 ## Pre-existing failures and visible diagnostics
 
 - `test_browser_tool.BrowserToolTests.test_extracts_information` expects `"page heading"` but receives `BrowserResult(action='extract_information', data={'query': 'page heading'})`. Identical baseline and final failure; browser remains a stub.
-- Untouched lint issues were rechecked: KnowledgeAgent ISC004 implicit-string concatenation; models PIE794 duplicate field and 14 RUF012 mutable-class-list diagnostics. All 16 remain. Changed files have zero diagnostics; the Equaliator's previous import-order diagnostic was resolved while editing its imports. No rules or tests were suppressed.
+- Untouched lint issues were rechecked: KnowledgeAgent ISC004 implicit-string concatenation; models PIE794 duplicate field and 14 RUF012 mutable-class-list diagnostics. All 16 remain. Changed files and their six existing HEAD versions have zero diagnostics. No rules or tests were suppressed.
 - SQLAlchemy declarative-base and installed Starlette/httpx deprecations remain visible. Malformed-PDF fixture messages are expected diagnostics, not failures.
 - No new regression failures were introduced.
 
@@ -104,6 +122,6 @@ New PostgreSQL tests explicitly target only the Django-selected `test_` database
 - Returned tool-call metadata is preserved but never executed by coordination. Read-tool definitions remain trusted code; read-only transactions are not a Python sandbox. Their PostgreSQL contract, 4,000-character chunk cap and lack of pagination snapshot/text-offset continuation remain unchanged.
 - Live Groq/Ollama/GitHub, semantic answer correctness, PDF-through-LLM execution, live Redis workers and production deployment were not tested. Frontend sign-in/knowledge requests, upload API and token-management UI remain absent.
 - Lost dispatch/jobs need operator retry. Per-document locks span provider work. Context assembly has a nominal character budget; local hash embeddings are nonsemantic. Production configuration still needs hardening.
-- ResearchAgent packages supplied state; DataAnalyst/Operations remain placeholders and their unsupported summaries do not complete investigations. Actions/verification are scaffolds; audit is memory-only. No persistent conversations/workflows, CI, MongoDB or MCP was added.
+- ResearchAgent packages supplied state; DataAnalyst/Operations remain placeholders and their unsupported summaries do not complete investigations. Controlled execution/verification is now connected, but has no default domain action, endpoint or human-authentication UI. Audit decisions persist locally; payloads and executable approvals cannot resume after restart. There is no approval expiry, distributed exactly-once guarantee, automatic rollback/recovery or hardened audit service. Callbacks/host identity remain trusted, and ambiguous effects require operator review. No persistent conversations/workflows, CI, MongoDB or MCP was added.
 
-**NEXT: Connect controlled actions** — trusted risk classification, durable approvals/audit, actual execution and independent verification, with approval-policy/executor alignment. Preserve the completed knowledge, read-tool and coordination boundaries. Browser work remains a later module. See [Task.md](Task.md).
+**NEXT: Finish browser work when needed** — choose a scoped use case/driver, then implement navigation/extraction under the controlled-action boundary and resolve the existing browser contract failure. No browser work was implemented here. See [Task.md](Task.md).

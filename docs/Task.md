@@ -1,6 +1,6 @@
 # GROOT — Implementation roadmap
 
-Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `0d7d2da feat: add coordination and quality`. Setup, the knowledge backend, trusted read-only tools, and Coordination and Quality are committed. Controlled Actions is implemented and verified in the working tree; nothing was committed or pushed.
 
 ## Completed foundations
 
@@ -10,7 +10,7 @@ Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read
 - [x] Text/PDF extraction, normalization, deterministic chunking, GitHub connector and organization-scoped event ingestion.
 - [x] Local/Ollama embedding providers, vector retrieval, context assembly, agent contracts/registry/capabilities, LangChain adapter and LangGraph wrapper.
 - [x] Sequential supervisor/coordinator, KnowledgeAgent; ResearchAgent state packaging and DataAnalyst/Operations scaffolds.
-- [x] Equaliator/evaluator, permission/approval/action/verification contracts and in-memory audit at their documented scaffold scope.
+- [x] Original Equaliator/evaluator, permission/approval/action/verification contracts and in-memory audit; connected implementations are recorded in the completed modules below.
 - [x] **Make setup reproducible**, committed as `3c42b23`: dependency declarations, matching environment configuration, examples, pgvector preflight and setup instructions. Not redone in this module.
 
 ## Completed module — Finish the knowledge flow (backend), committed `20008e6`
@@ -39,7 +39,7 @@ This completes the backend module. It does not complete the frontend identity ch
 
 **Status: complete and committed in `a6d1b6e`.** This is a server-side read-tool layer. It adds no HTTP route, automatic tool selection, general business-data grant or placeholder specialist behavior.
 
-## Completed module — Coordination and Quality
+## Completed module — Coordination and Quality, committed `0d7d2da`
 
 - [x] Audit current HEAD, all six living docs, existing infrastructure and tests; record clean baseline `a6d1b6e`.
 - [x] Use the existing registry/supervisor/AgentGraph for multiple explicit selections, preserving original context and deterministic ordering.
@@ -50,33 +50,44 @@ This completes the backend module. It does not complete the frontend identity ch
 - [x] Verify trusted read tools retain authorization/tenant isolation, including credential revocation between agent calls and rejected mutation.
 - [x] Run focused/full regressions, system/migration/Alembic/compilation/diff/lint checks; update all six docs. No existing tests weakened, edited, skipped or suppressed.
 
-**Status: complete and verified in the working tree.** No commit or push. No new endpoint, authentication, browser behavior, action execution, frontend, database ownership or schema change.
+**Status: complete and committed in `0d7d2da`.** That module added no endpoint, authentication, browser behavior, action execution, frontend, database ownership or schema change.
+
+## Completed module — Controlled Actions
+
+- [x] Audit clean HEAD `0d7d2da`, all six living documents and existing implementations/tests; establish AI and Django baselines.
+- [x] Add a trusted strict action registry and one ControlledActionPipeline reusing PermissionEngine, AgentCapabilityPolicy, ApprovalPolicy, ActionExecutor, ActionVerifier and AuditLog.
+- [x] Enforce role/context/agent permission and matching user/tenant/agent identity; keep knowledge grants read-only.
+- [x] Use trusted READ/LOW/HIGH_IMPACT classification; automatic READ/LOW and separate human approval for HIGH_IMPACT. Ignore incoming approval flags and reject invalid risk.
+- [x] Snapshot action parameters, bind approval/resumption to the original context, recheck execution grants, and keep denial and completed outcomes terminal.
+- [x] Execute registered callbacks through the existing executor and verify every attempt through the existing verifier; failed execution/verification stays failed.
+- [x] Persist safe decision events in the existing audit log's optional local journal, required for this pipeline. Keep secrets/payloads/raw errors out of audit and controlled results; fail closed on required audit writes.
+- [x] Add explicit coordinator submission using the existing supervisor registry. Investigations/tool-call metadata still never trigger actions automatically.
+- [x] Verify 34 focused tests plus existing regressions, lint, compilation, system, migration and diff checks; update all six docs.
+
+**Status: complete and verified in the working tree; no commit or push.** Decisions persist, but pending payloads/approvals cannot resume after restart. No domain/external action, approval endpoint, authentication extension, browser, frontend, dependency or schema change was added.
 
 ## Verification record — current module
 
-| Check | Baseline `a6d1b6e` | Final |
+| Check | Baseline `0d7d2da` | Final |
 | --- | --- | --- |
-| AI unittest discovery | 203 run; 202 passed; 1 failed | 232 run; 231 passed; same 1 failed |
-| Django `test core` | 119 run; 119 passed | 126 run; 126 passed |
-| New coordination/quality AI tests | — | 29 run; 29 passed |
-| Focused AI regression selection | — | 103 run; 103 passed |
-| New PostgreSQL coordination tests | — | 7 run; 7 passed |
-| Ruff 0.16.9, changed Python files | 1 Equaliator import-order diagnostic | 0 diagnostics; import sorted while editing |
+| Full AI unittest discovery | 232 run; 231 passed; 1 failed | 266 run; 265 passed; same 1 failed |
+| Full Django `test core` | 126 run; 126 passed | 126 run; 126 passed |
+| New controlled-action tests | — | 34 run; 34 passed |
+| Focused AI regression selection | — | 100 run; 100 passed |
+| Ruff 0.16.9, changed Python files | 0 on 6 existing files | 0 on all 9 changed/new files |
 
-Django system check: 0 issues. Migration drift: No changes detected. Existing real Alembic lifecycle/drift regression: passed, no new upgrade operations. Offline migration SQL, Python compilation and `git diff --check`: passed. No schema changes or migrations applied to the developer database. No static Python type checker is configured/installed.
+Django system check: 0 issues. Migration drift: No changes detected. Real Alembic lifecycle/drift regression: passed, no new upgrade operations. Offline migration SQL, Python compilation and `git diff --check`: passed. No migrations were applied to the developer database. No configured/installed Python type checker was found.
 
-The sole failing test remains `test_browser_tool.BrowserToolTests.test_extracts_information` (string versus BrowserResult), confirmed before edits. The 16 existing Ruff diagnostics in untouched KnowledgeAgent/models files remain. SQLAlchemy/Starlette deprecations and malformed-PDF fixture diagnostics remain visible. No new regression failures.
+The sole failure remains `test_browser_tool.BrowserToolTests.test_extracts_information` (string versus BrowserResult), confirmed before edits. The 16 existing Ruff diagnostics in untouched KnowledgeAgent/models files remain. SQLAlchemy/Starlette deprecations and malformed-PDF fixture messages remain visible. No new regressions; existing tests were not edited, weakened or suppressed. Files and commands are recorded in [MEMORY.md](MEMORY.md).
 
 ## Next unfinished module
 
-**NEXT — Connect controlled actions.** Add trusted risk classification, durable approvals/audit, actual tool execution and independent verification; align approval policy/executor semantics. Preserve the completed knowledge, read-tool and coordination boundaries. No action capability was added by the current module.
-
-Subsequent roadmap module:
-
-1. [ ] **Finish browser work when needed:** choose a scoped use case/driver, implement navigation/extraction under the same control boundary and resolve the existing browser contract failure.
+**NEXT — Finish browser work when needed.** Choose a scoped use case/driver, then implement navigation/extraction under the existing controlled boundary and resolve the pre-existing browser contract failure. Browser work was excluded from Controlled Actions.
 
 ## Remaining limitations and later work
 
+- [ ] Add trusted host approval/authentication interfaces and domain action implementations when required. Current controlled execution is an internal API with an empty default registry; callers establish human identity and current grants.
+- [ ] Add approval expiry, journal operational hardening and durable executable workflow recovery if required. Decisions persist locally; pending payloads/approvals are lost on restart. No distributed exactly-once guarantee, automatic rollback or retry of ambiguous effects is provided. Callbacks must enforce their own tenant-scoped domain access.
 - [ ] Add an authenticated investigation client/endpoint if needed. Coordination is currently server-side with explicit selections and trusted context; agents can use the existing guarded read registry. No parallel execution, retries, persistence or autonomous selection is implemented.
 - [ ] Expand quality verification only with tested semantics/evaluation data. Current checks cover literal statement support, citation references and explicit opposite-polarity clauses; paraphrases, numerical reasoning and independent truth remain unverified.
 - [ ] Read-tool definitions remain trusted code; only knowledge reads have grants. Chunk text is capped at 4,000 characters without text-offset continuation, and pagination has no snapshot guarantee during reprocessing.
