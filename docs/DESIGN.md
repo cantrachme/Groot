@@ -1,6 +1,6 @@
 # GROOT — Design decisions and implementation patterns
 
-Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
 
 ## Existing structure retained
 
@@ -58,14 +58,40 @@ Pagination uses ascending document IDs (`after_id`, initially 0) or chunk indice
 
 ### Deployment boundary
 
-No new HTTP endpoint, automatic selection loop, external provider, dependency or migration was added. The server-side registry is usable now; routing it through an authenticated agent workflow remains subsequent coordination work. `/ai` discovery stays health-only. Credentials never appear in schemas or tool results. The contract targets the project's PostgreSQL database; it provides no alternate writable fallback or non-PostgreSQL implementation.
+No new HTTP endpoint, automatic selection loop, external provider, dependency or migration was added. Registered agents can now use the server-side read registry within the coordinator; callers still establish the authenticated context and bind tool credentials. `/ai` discovery stays health-only. Credentials never appear in schemas or tool results. The contract targets the project's PostgreSQL database; it provides no alternate writable fallback or non-PostgreSQL implementation.
+
+## Implemented coordination and quality design
+
+### One result contract and explicit execution
+
+CoordinationResult was extended with existing evaluation types, status, summary, evidence/citations and limitations. Existing two-argument construction remains valid through defaults. Selection and individual AgentResults stay intact, so consumers can inspect the original KnowledgeAgent answer, evidence similarity, citation IDs and metadata. Flat evidence/citation collections preserve order and duplicates rather than erasing provenance or conflicting sources.
+
+The registry/supervisor/graph remain the execution path. The coordinator enables per-agent failure capture, preserving one result position per selected name, including missing agents and execution failures. A failed agent does not prevent the remaining selected agents from running. Direct supervisor behavior remains unchanged by default. Exception types are retained while raw messages are excluded from returned summaries/findings. The coordinator preserves the original context object, including task, query, IDs, permissions and runtime state; agents are trusted to leave that shared state unchanged.
+
+### Checks with explicit limits
+
+AgentEvaluator evaluates every result using existing MetricScore/EvaluationResult types. Success, confidence, evidence and errors remain visible; `groundedness` adds the result of literal support checks. Blank/missing evidence, blank summaries, citation references not present in evidence and summary statements not found in evidence text produce findings. Sentence comparison normalizes case, whitespace and terminal punctuation. It checks complete statements, so a matching substring inside a negated claim does not suffice. It does not recognize paraphrases, independently authenticate source content or assess arbitrary structured data fields.
+
+Missing confidence stays null. Booleans, strings, nonfinite numbers and values outside 0–1 fail confidence validation. Original AgentResults are retained; metrics use null for invalid confidence and Equaliator excludes invalid/error-bearing/failed scores from its mean. No low-confidence threshold is introduced.
+
+Equaliator now uses these shared support findings, reports errors/invalid confidence as missing information, and prevents those signals from completing its assessment. Evidence quality is HIGH only when every agent succeeds without errors and has usable evidence. Summary agreement remains a wording comparison. Contradictions cover the same explicit auxiliary-verb clause with and without `not` (excluding `not only`); broader contradictions are not inferred.
+
+### Status and synthesis
+
+The overall status is authoritative: `complete` requires all results to pass checks and supply evidence text. The existing Equaliator structural completion flag alone is insufficient, particularly for legacy source-only references. Mixed success/failure is partial, no successful error-free results is failed, and empty selections or otherwise unresolved quality are incomplete. An empty KnowledgeAgent retrieval remains incomplete even though its existing result represents successful execution.
+
+Synthesis attributes original checked summaries in selection order and adds no new model-generated claims. Unsupported/failed summaries are withheld, and detected contradiction suppresses a combined conclusion. Evidence, citations, metrics and findings remain available even when synthesis is withheld. Missing confidence and unavailable evidence text are explicit limitations; every investigation also states the heuristic scope of its quality checks.
+
+### Authorization boundary
+
+No authentication or permission model changed. This is an internal coordinator invoked with trusted context; KnowledgeAgent continues its existing scoped RAG behavior. Agents that use bound read tools retain live membership/identity/permission/tenant checks inside the tools. Credentials never become coordinator arguments or tool-schema fields. The coordinator records returned tool-call metadata but does not execute it. No browser, write tool, action or autonomous agent-selection loop was added.
 
 ## Existing agent and control maturity
 
 - KnowledgeAgent performs the implemented RAG flow and preserves evidence/citations. Its session in `state['db']` remains a live object, not durable workflow state.
 - ResearchAgent packages supplied state; DataAnalyst and Operations still return placeholder summaries.
-- The general coordinator executes selected agents sequentially without planning or synthesis. LangGraph wraps one node without checkpointing.
-- Equaliator measures summary agreement/evidence heuristics; contradiction detection remains empty. AgentEvaluator reports result fields rather than independent correctness.
+- The coordinator executes explicit selections sequentially, evaluates outputs and builds attributed summaries with status/limitations. LangGraph still wraps one node without checkpointing or autonomous planning.
+- Equaliator and AgentEvaluator are connected to coordination with the support/contradiction limits above. They do not establish independent factual correctness.
 - PermissionEngine and AgentCapabilityPolicy are connected to the trusted read-tool executor. Approval, action execution, verification and audit remain separate scaffolds; audit storage is in memory.
 
 ## Interface and scope boundary
@@ -74,4 +100,4 @@ No frontend files changed. The dark orb/HUD, speech and MediaPipe interactions s
 
 ## Verified design checks
 
-Read-tool tests cover discovery, strict schemas, registration rejection, direct and orchestrated use, authorization, tenant isolation, pagination and explicit bounds. Twelve PostgreSQL tests verify real membership/token behavior, readiness, Unicode truncation, read-only transaction reset, application-row immutability and rejection of a modifying CTE with SQLSTATE `25006`. New unit tests: 11/11; focused AI regression: 65/65; full AI: 202/203 with the pre-existing browser failure; full Django: 119/119. Existing knowledge-flow tests and migration lifecycle checks still pass. See [MEMORY.md](MEMORY.md).
+The 29 new AI tests cover ordered multi-agent execution, original context, evaluation integration and metrics, complete/partial/failed/incomplete status, exceptions, invalid result identities, unsupported text/citations, missing/invalid confidence, literal contradictions, KnowledgeAgent evidence preservation, empty retrieval and no tool-call dispatch. The focused AI selection passed 103/103. Seven new PostgreSQL/pgvector tests coordinate actual KnowledgeAgent retrieval and guarded reads using fake external providers; they verify tenant isolation, permissions, expired/revoked credentials, revocation between agents and rejected mutation without data changes. Full AI: 231/232 with the baseline browser failure; full Django: 126/126. Migration, compilation, diff and changed-file lint checks passed. See [MEMORY.md](MEMORY.md).

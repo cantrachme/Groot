@@ -1,6 +1,6 @@
 # GROOT — Product requirements and current scope
 
-Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
 
 ## Purpose and users
 
@@ -17,8 +17,9 @@ GROOT aims to provide operational intelligence for growing startups: connect com
 | Trusted read tools | Request-local registry with `list_documents` and `read_document_chunks`; live membership, permission and agent checks; database-enforced read-only transactions | Knowledge data only; server-side API, no new HTTP route or automatic tool selection |
 | Assistant | `/ai`, Groq and one tool-execution round | Existing UUID-based demo identity; only `health_check` registered; no company-data access through this path |
 | External data | Read-only GitHub connector and organization-scoped event ingestion | Other integrations remain enum choices |
-| Agents | Contracts, registry, policy, LangGraph wrapper, sequential coordinator; KnowledgeAgent now reached by `/rag` | ResearchAgent packages supplied state; DataAnalyst/Operations remain placeholders |
-| Quality/actions | Equaliator, evaluator, permission/approval contracts, action/verification scaffolds, in-memory audit | Unconnected to the HTTP knowledge flow; no real action execution or independent verification |
+| Agents | Registry/supervisor/LangGraph execution with explicit ordered multi-agent investigation, per-agent evaluations and aggregate quality/status | Trusted server-side caller supplies the original context; ResearchAgent packages state; DataAnalyst/Operations remain placeholders |
+| Quality | AgentEvaluator and Equaliator connected to coordination; evidence/citation preservation, support findings, bounded contradiction checks and attributed summaries | Deterministic checks, not semantic truth verification; no investigation HTTP endpoint |
+| Actions | Permission/approval contracts, action/verification scaffolds, in-memory audit | No real action execution or independent outcome verification |
 | Interface/browser | Orb, speech and MediaPipe gesture prototype; browser state/result stub | Frontend still calls `/ai` with random UUIDs; gestures are not authorization; browser stub has no driver |
 
 ## Completed module — Finish the knowledge flow (backend)
@@ -40,10 +41,20 @@ Document pages contain at most 100 records (default 20). Chunk pages contain at 
 
 Strict schemas reject mutations, SQL, identity overrides and invalid arguments. PostgreSQL read-only transactions also reject a write hidden in a SELECT. Existing `/rag` answer behavior is preserved; `/ai` still has only the health tool. Tokens do not grant access to unrelated business records or actions.
 
+## Completed module — Coordination and Quality
+
+`MultiAgentCoordinator.execute(selection, context)` now runs every explicitly selected agent through the existing supervisor and graph, preserving selection order and the original request/context. Agent failures, unknown selections and invalid returned identities become ordered failed results; remaining selected agents still run. Exceptions expose their type without forwarding raw provider/SQL messages.
+
+The existing CoordinationResult retains selection/results and adds existing EvaluationResult/EqualiatorResult objects, status, attributed summary, evidence, citations and limitations. KnowledgeAgent's original evidence, citations and metadata survive. The coordinator neither dispatches returned tool calls nor changes credentials, permissions or tenant scope.
+
+Status is `complete` only when all selected results are successful, error-free, pass quality checks and have evidence text for statement checking. Mixed success/failure is `partial`; no successful error-free output is `failed`; empty selections, unsupported output, conflicts or source-only evidence are `incomplete`. The summary includes only attributed agent summaries that passed checks and had evidence text; detected conflicts withhold a combined conclusion.
+
+Quality measures actual success, reported confidence, evidence and errors. It verifies literal summary statements against supplied evidence text after normalizing case/whitespace/terminal punctuation, checks citation references, and detects identical explicit clauses with opposite `not` polarity. Unmatched paraphrases remain unverified. Agreement is wording agreement, and confidence is an average of valid reported scores, not a calibrated probability of truth.
+
 ## Verification and product limits
 
-- New read-tool coverage: **11/11 AI unit tests and 12/12 PostgreSQL integration tests passed**. Focused AI regression selection: **65/65 passed**.
-- Full regression: AI **202 passed / 203 run**, retaining the sole pre-existing browser extraction failure; Django **119/119 passed**. Current-module baseline: AI **191/192**, Django **107/107**. No new failures. Lint has only the unchanged KnowledgeAgent diagnostic among changed files.
+- New coverage: **29/29 AI unit tests**, included in a **103/103** focused regression selection, and **7/7 PostgreSQL/pgvector integration tests**.
+- Full regression: AI **231 passed / 232 run**, retaining the sole pre-existing browser extraction failure; Django **126/126 passed**. Baseline at `a6d1b6e`: AI **202/203**, Django **119/119**. No new regression failures. Changed-file lint: **0 diagnostics**; 16 known diagnostics remain in untouched KnowledgeAgent/models files.
 - Django migration creation/drift checks and real Alembic upgrade/downgrade/upgrade/drift checks passed in a temporary test database. No migrations were applied to the developer's existing database.
 - Live Groq/Ollama/GitHub calls, a running Redis worker, semantic answer correctness, PDF-through-LLM behavior and frontend runtime/build were not verified by this module. The end-to-end fixture used plain text and fake providers with real pgvector queries.
 - Tokens are issued by an operator; there is no user sign-in, token-management UI or upload API. Old documents require embedding after the new migrations. Lost dispatch/process crashes can require manual retry.
@@ -51,4 +62,4 @@ Strict schemas reject mutations, SQL, identity overrides and invalid arguments. 
 
 ## Next product increment
 
-The next roadmap module is **Connect coordination and quality**: explicit agent selection, evidence collection, Equaliator and synthesis, with supported contradiction/groundedness checks before claiming them. Preserve the verified knowledge and read-tool boundaries. See [Task.md](Task.md).
+The next roadmap module is **Connect controlled actions**: trusted risk classification, durable approval/audit, actual execution and independent verification. This module added only coordination and quality for existing trusted agents and read operations. See [Task.md](Task.md).

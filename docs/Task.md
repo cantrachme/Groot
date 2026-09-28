@@ -1,6 +1,6 @@
 # GROOT — Implementation roadmap
 
-Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
 
 ## Completed foundations
 
@@ -26,7 +26,7 @@ Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-
 
 This completes the backend module. It does not complete the frontend identity checklist from the earlier milestone: the frontend still calls `/ai` with random UUIDs. A user sign-in/knowledge client and upload API remain explicitly pending interface work, not claimed delivered here.
 
-## Completed module — Trusted Read-Only Tools
+## Completed module — Trusted Read-Only Tools, committed `a6d1b6e`
 
 - [x] Audit all six docs and the actual agent, permission, membership, RAG, database and tool implementation before edits.
 - [x] Add a small read-only Tool/ToolRegistry extension with typed schemas and guarded execution.
@@ -37,35 +37,49 @@ This completes the backend module. It does not complete the frontend identity ch
 - [x] Verify discovery, authorized reads, denied credentials/permissions, tenant isolation, strict argument rejection, unchanged data and database rejection of hidden writes.
 - [x] Run focused tests, broader regressions, lint, compilation and migration/diff checks; update all six docs. No existing tests modified, skipped or suppressed; no commit or push.
 
-**Status: complete and verified in the working tree.** This is a server-side read-tool layer. It adds no HTTP route, automatic tool selection, general business-data grant or placeholder specialist behavior.
+**Status: complete and committed in `a6d1b6e`.** This is a server-side read-tool layer. It adds no HTTP route, automatic tool selection, general business-data grant or placeholder specialist behavior.
+
+## Completed module — Coordination and Quality
+
+- [x] Audit current HEAD, all six living docs, existing infrastructure and tests; record clean baseline `a6d1b6e`.
+- [x] Use the existing registry/supervisor/AgentGraph for multiple explicit selections, preserving original context and deterministic ordering.
+- [x] Capture per-agent failures/invalid identities without aborting remaining selected agents; retain direct supervisor exception behavior by default.
+- [x] Connect AgentEvaluator and Equaliator using their existing result types; add support findings, safe confidence handling and narrow literal contradiction checks.
+- [x] Extend CoordinationResult with evaluation, quality, status, attributed summary, evidence/citations and limitations; preserve original KnowledgeAgent results.
+- [x] Represent incomplete, partial and failed investigations explicitly. Withhold unsupported summaries and conflicting conclusions.
+- [x] Verify trusted read tools retain authorization/tenant isolation, including credential revocation between agent calls and rejected mutation.
+- [x] Run focused/full regressions, system/migration/Alembic/compilation/diff/lint checks; update all six docs. No existing tests weakened, edited, skipped or suppressed.
+
+**Status: complete and verified in the working tree.** No commit or push. No new endpoint, authentication, browser behavior, action execution, frontend, database ownership or schema change.
 
 ## Verification record — current module
 
-| Check | Baseline `20008e6` | Final |
+| Check | Baseline `a6d1b6e` | Final |
 | --- | --- | --- |
-| AI unittest discovery | 192 run; 191 passed; 1 failed | 203 run; 202 passed; same 1 failed |
-| Django `test core` | 107 run; 107 passed | 119 run; 119 passed |
-| New read-tool AI tests | — | 11 run; 11 passed |
-| Focused AI regression selection | — | 65 run; 65 passed |
-| New PostgreSQL read-tool tests | — | 12 run; 12 passed |
-| Ruff 0.16.9 on changed Python files | 1 KnowledgeAgent diagnostic | Same 1; zero new diagnostics |
+| AI unittest discovery | 203 run; 202 passed; 1 failed | 232 run; 231 passed; same 1 failed |
+| Django `test core` | 119 run; 119 passed | 126 run; 126 passed |
+| New coordination/quality AI tests | — | 29 run; 29 passed |
+| Focused AI regression selection | — | 103 run; 103 passed |
+| New PostgreSQL coordination tests | — | 7 run; 7 passed |
+| Ruff 0.16.9, changed Python files | 1 Equaliator import-order diagnostic | 0 diagnostics; import sorted while editing |
 
-Django system check: 0 issues. Migration drift: No changes detected. Existing real Alembic lifecycle/drift regression: passed, no new upgrade operations. Offline migration SQL, Python compilation and `git diff --check`: passed. No schema changes or migrations applied to the developer database. No Python static type checker is configured/installed; compilation is not a type check.
+Django system check: 0 issues. Migration drift: No changes detected. Existing real Alembic lifecycle/drift regression: passed, no new upgrade operations. Offline migration SQL, Python compilation and `git diff --check`: passed. No schema changes or migrations applied to the developer database. No static Python type checker is configured/installed.
 
-The sole failing test remains `test_browser_tool.BrowserToolTests.test_extracts_information` (string versus `BrowserResult`), confirmed before edits. Existing SQLAlchemy/Starlette deprecations and malformed-PDF fixture diagnostics remain visible. No unrelated frontend or browser changes were made.
+The sole failing test remains `test_browser_tool.BrowserToolTests.test_extracts_information` (string versus BrowserResult), confirmed before edits. The 16 existing Ruff diagnostics in untouched KnowledgeAgent/models files remain. SQLAlchemy/Starlette deprecations and malformed-PDF fixture diagnostics remain visible. No new regression failures.
 
 ## Next unfinished module
 
-**NEXT — Connect coordination and quality.** Connect explicit selection, evidence collection, Equaliator and synthesis. Implement supported contradiction/groundedness checks before advertising them. Reuse the trusted read-tool boundary and preserve existing knowledge behavior.
+**NEXT — Connect controlled actions.** Add trusted risk classification, durable approvals/audit, actual tool execution and independent verification; align approval policy/executor semantics. Preserve the completed knowledge, read-tool and coordination boundaries. No action capability was added by the current module.
 
-Subsequent roadmap modules remain:
+Subsequent roadmap module:
 
-1. [ ] **Connect controlled actions:** trusted risk classification, durable approvals/audit, actual tool execution and independent verification; align approval policy/executor semantics.
-2. [ ] **Finish browser work when needed:** choose a scoped use case/driver, implement navigation/extraction under the same control boundary and resolve the existing browser contract failure.
+1. [ ] **Finish browser work when needed:** choose a scoped use case/driver, implement navigation/extraction under the same control boundary and resolve the existing browser contract failure.
 
 ## Remaining limitations and later work
 
-- [ ] Connect the new server-side read registry to the authenticated coordination flow when that module is implemented. Definitions remain trusted code; only knowledge reads have grants. Chunk text is capped at 4,000 characters without text-offset continuation, and pagination has no snapshot guarantee during reprocessing.
+- [ ] Add an authenticated investigation client/endpoint if needed. Coordination is currently server-side with explicit selections and trusted context; agents can use the existing guarded read registry. No parallel execution, retries, persistence or autonomous selection is implemented.
+- [ ] Expand quality verification only with tested semantics/evaluation data. Current checks cover literal statement support, citation references and explicit opposite-polarity clauses; paraphrases, numerical reasoning and independent truth remain unverified.
+- [ ] Read-tool definitions remain trusted code; only knowledge reads have grants. Chunk text is capped at 4,000 characters without text-offset continuation, and pagination has no snapshot guarantee during reprocessing.
 - [ ] Add frontend sign-in, authenticated knowledge requests and an evidence interface. Existing gestures remain presentation, not authorization.
 - [ ] Add a user-facing upload/ingestion API and token-management UI. Operators currently use Django admin, a credential command and existing processing tasks.
 - [ ] Add durable dispatch/recovery if required: current on-commit publication is not an outbox. Broker/process/worker loss can need manual retries. Holding document locks across provider calls serializes work per document.

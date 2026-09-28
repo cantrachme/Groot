@@ -1,6 +1,6 @@
 # GROOT — Engineering rules
 
-Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
 
 ## Preserve ownership and service boundaries
 
@@ -29,6 +29,18 @@ Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-
 - Keep document pages at 1–100 rows, chunk pages at 1–20 rows, and chunk text at 4,000 characters with `truncated`. Preserve chunk/document IDs and ordered continuation cursors. Exclude storage keys, error details, credentials and personal fields.
 - Extensions are trusted source code: use the guarded executor, scoped projections, bounded argument models and focused isolation/mutation tests. Do not accept model-supplied SQL or treat Python definitions as sandboxed untrusted plugins. New data domains require their own trusted grants; knowledge tokens confer no general business/action authority.
 
+## Enforced coordination and quality contracts
+
+- Use the existing registry, supervisor and AgentGraph with explicit selection. Preserve selection order and pass the original context/request to each agent; do not replace its task/query with another agent's output or inject earlier results into state. Registered agents remain trusted Python and must not mutate shared context state.
+- Coordinator execution captures each agent's exception or invalid result identity as a failed AgentResult and continues. Keep failure type but omit raw exception messages. Direct supervisor execution preserves its existing exception behavior unless capture is explicitly requested.
+- Reuse CoordinationResult, AgentResult, EvaluationResult/MetricScore and EqualiatorResult/AgentAssessment. Preserve original result evidence, citations, errors and metadata; aggregate collections retain ordering and duplicates. Failed evidence remains attributable to its individual failed result, not promoted into a conclusion.
+- Run AgentEvaluator on every result and Equaliator on the ordered result tuple. Missing confidence stays null; invalid type/range/nonfinite confidence is a finding and must not contaminate averaged scores. Result errors block passed evaluation even when success is true.
+- Treat missing/blank evidence, unmatched summary statements and invalid citation references as support findings. Literal normalization checks are conservative: unverified paraphrases are not proved false, and matching text is not independently verified truth. String/source labels alone cannot complete an overall investigation.
+- Detect only the implemented contradiction pattern: identical explicit clauses with opposite `not` polarity. Do not advertise general semantic, numerical or causal contradiction detection. Wording agreement and reported confidence are separate from correctness.
+- Mark mixed execution outcomes partial, all unsuccessful/error-bearing outcomes failed, and empty/unsupported/conflicting investigations incomplete. Complete requires every result to pass the current checks with evidence text. Missing confidence alone is reported as a limitation rather than assigned an invented score.
+- Build an attributed summary only from passed outputs with evidence text. Detected conflicts withhold combined conclusions. Preserve findings/limitations; do not fabricate a synthesis or dispatch returned tool calls, actions or additional agents.
+- Coordination does not authenticate an untrusted context or create grants. Existing callers authenticate KnowledgeAgent requests; existing read tools still perform their own live authorization. Keep the global `/ai` registry health-only.
+
 ## Enforced document/vector lifecycle
 
 - Preserve extraction results and deterministic chunk ordering/replacement. Embedding readiness is separate from extraction readiness; only documents with both states ready may be retrieved.
@@ -49,8 +61,8 @@ The read-only knowledge tools now enforce trusted authorization, including direc
 ## Verification and working conventions
 
 - Implement only the current roadmap module. Add focused tests, run applicable regression suites and checks, then update PRD, ARCHITECTURE, RULES, DESIGN, Task and MEMORY before reporting. Do not commit/push unless requested.
-- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in this module. Baseline AI: 191/192; final: 202/203, with the same browser extraction failure. Baseline Django: 107/107; final: 119/119. New focused suites: AI 11/11 and PostgreSQL 12/12; relevant AI selection 65/65.
+- Do not weaken, skip or suppress tests to hide failures. No existing tests were edited in this module. Baseline AI: 202/203; final: 231/232, with the same browser extraction failure. Baseline Django: 119/119; final: 126/126. New suites: AI 29/29 and PostgreSQL 7/7; relevant AI selection 103/103.
 - Database integration tests must target the temporary Django test database. Tests involving vectors apply both migration systems there and clean up AI tables before Django teardown; document-only tool tests use the Django tables. The tests do not migrate the developer database.
 - Distinguish real database verification from fake external providers. Live Groq/Ollama/GitHub, worker/broker execution and frontend builds were not verified here.
-- Ruff 0.16.9 on this module’s changed Python files reports only the same pre-existing KnowledgeAgent implicit-string-concatenation diagnostic; HEAD comparison confirms zero new diagnostics. The earlier model diagnostics remain outside this module. Preserve unrelated code instead of suppressing those diagnostics. No Python type-checker configuration exists; compilation is not a static type check.
+- Ruff 0.16.9 reports zero diagnostics on this module’s seven changed/new Python files. HEAD comparison had one Equaliator import-order diagnostic, resolved when editing its imports. The untouched KnowledgeAgent/models files still report their 16 pre-existing diagnostics. Preserve unrelated code instead of suppressing those diagnostics. No Python type-checker configuration exists; compilation is not a static type check.
 - Before future frontend code changes, read `frontend/AGENTS.md` and the relevant bundled Next.js guide. The current module changes no frontend files.

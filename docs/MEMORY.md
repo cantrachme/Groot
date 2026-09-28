@@ -1,6 +1,6 @@
 # GROOT — Compact project memory
 
-Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. All six living docs and the actual implementation were audited before edits. **Trusted Read-Only Tools is complete and verified in the working tree.** No commit or push was made; setup (`3c42b23`) and knowledge backend (`20008e6`) were already committed and were not redone.
+Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
 
 ## Current architecture and completed modules
 
@@ -8,25 +8,41 @@ Django owns users, memberships, company/document/chunk data, knowledge tokens an
 
 - Setup: compatible dependency declarations, shared environment-based PostgreSQL/Redis configuration, example environments, read-only pgvector preflight and setup instructions.
 - Knowledge backend: authenticated `/rag` → KnowledgeAgent → shared RAGService → tenant-scoped vector/text retrieval → answer, evidence and citation IDs. Empty authorized context returns a fixed insufficient-context response without an LLM call. Processing dispatches embeddings after commit; document locks and cascading chunk foreign keys coordinate replacement/deletion.
-- **Trusted Read-Only Tools:** private registry for ready-document inventory and ordered chunk inspection. Each execution checks live membership, both integer IDs, PermissionEngine, AgentCapabilityPolicy, tenant scope and PostgreSQL read-only transaction semantics. Direct tool use and the existing Orchestrator are verified. `/ai` remains health-only; `/rag` still uses its existing RAG path.
+- Trusted Read-Only Tools (committed `a6d1b6e`): private registry for ready-document inventory and ordered chunk inspection. Each execution checks live membership, both integer IDs, PermissionEngine, AgentCapabilityPolicy, tenant scope and PostgreSQL read-only transaction semantics. Direct tool use and the existing Orchestrator are verified. `/ai` remains health-only; `/rag` still uses its existing RAG path.
+- **Coordination and Quality:** existing coordinator now returns ordered agent outputs, AgentEvaluator evaluations, Equaliator assessment, overall status, attributed summary, evidence/citations and explicit limitations. Agent failures are isolated; original context is preserved. No endpoint, new authentication, write/action dispatch, browser or frontend capability was added.
 
 ## Files changed in this module
 
 | File | Implemented change |
 | --- | --- |
-| `ai_engine/app/tools/read_only/base.py` | Strict bounded parameters; `ReadOnlyTool` guarded executor; live role-derived permission plus agent checks; central tenant predicate/LIMIT; private read-only registry; rollback/close on all outcomes |
-| `ai_engine/app/tools/read_only/documents.py` | `list_documents` and `read_document_chunks` definitions, query-only Django table expressions, readiness, pagination and SQL text truncation |
-| `ai_engine/app/tools/read_only/__init__.py` | Request-local registry factory with server-bound credential/agent/context and injectable session factory |
-| `ai_engine/app/tools/schema.py` | Typed Pydantic argument schemas for new tools, preserving the legacy empty object schema |
-| `ai_engine/app/agents/knowledge.py` | Two allowed tool names and `read_only_tools(context, credentials)` factory method; existing `execute` behavior preserved |
-| `ai_engine/app/permissions/models.py` | Integer identity annotations alongside UUID compatibility in AuthorizationContext |
-| `ai_engine/tests/test_read_only_tools.py` | 11 new unit tests for registry/schema contracts, authorization, strict input, tenant parameters and existing orchestrator integration |
-| `backend/core/test_read_only_tools.py` | 12 new real PostgreSQL tests for reads, isolation, membership changes, pagination/truncation and read-only enforcement |
-| `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `docs/DESIGN.md`, `docs/Task.md`, `docs/MEMORY.md` | Verified capability, architecture, rules, design, roadmap and exact verification record |
+| `ai_engine/app/agents/coordinator.py` | Extended existing CoordinationResult; evaluator/Equaliator integration; status, attribution, evidence/citation aggregation and limitations |
+| `ai_engine/app/agents/supervisor.py` | Optional per-agent failure capture and result-identity validation; default direct-call exception behavior preserved |
+| `ai_engine/app/evaluation/agent_evaluator.py` | Existing four metrics plus groundedness; findings, invalid confidence handling and stricter passed flag |
+| `ai_engine/app/evaluation/support.py` | Shared literal statement, usable evidence, citation reference and confidence checks |
+| `ai_engine/app/equaliator/evaluator.py` | Shared support findings, errors/invalid confidence completion gates, evidence coverage, bounded opposite-polarity conflicts and valid-score averaging |
+| `ai_engine/tests/test_coordination_quality.py` | 29 new unit tests covering coordination, quality, KnowledgeAgent results and compatibility |
+| `backend/core/test_coordination_quality.py` | 7 real PostgreSQL/pgvector tests coordinating knowledge and guarded reads, including denied access and mutation rejection |
+| `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/RULES.md`, `docs/DESIGN.md`, `docs/Task.md`, `docs/MEMORY.md` | Verified capability, architecture, rules, design, roadmap and results |
 
-No existing test files, dependencies, models, migrations, HTTP routes, frontend files, browser code or action scaffolds were changed.
+No existing test files, dependencies, models, migrations, HTTP routes, read-tool permission checks, frontend files, browser code or action scaffolds were changed.
 
-## Read-tool decisions and contracts
+## Coordination design decisions and operational contract
+
+1. Keep `MultiAgentCoordinator.execute(selection, context)` as the entry point. AgentSelection, the registry, supervisor and existing one-node AgentGraph remain in use. Every agent receives the same original AgentContext object, including IDs/request/task/permissions/state. No previous output replaces the query or task. Shared state can contain a live Session; trusted agents must leave it unchanged.
+2. The coordinator opts into `AgentSupervisor.execute(..., capture_failures=True)`. Each selected name has one ordered result; unknown agents, raised Exceptions, wrong result types or mismatched result names become failed AgentResults and execution continues. Raw exception messages are omitted; the error retains the exception class name. Direct supervisor use defaults to existing raise behavior. BaseExceptions such as interrupts are not captured.
+3. Extend CoordinationResult instead of duplicating result/evaluation models. Original selection/results remain, and added fields have defaults to preserve two-argument construction. `evaluations` uses EvaluationResult/MetricScore; `quality` uses EqualiatorResult/AgentAssessment. Additional fields are `status`, `summary`, `evidence`, `citations`, `limitations`.
+4. Original results, including failed or unsupported evidence, remain intact. Aggregate evidence and list/tuple citation collections are flattened in selection order with duplicates preserved. Per-agent results preserve provenance, KnowledgeAgent similarity scores, citation IDs and metadata. Invalid citation containers remain in the original data and generate findings; they are not treated as valid aggregate citations.
+5. AgentEvaluator reports success, reported confidence, evidence availability and errors with actual supplied evidence/error counts. New `groundedness` is 1 for passed literal statement/citation support, 0 for support findings, null for failed results or unavailable text checks. `passed` requires reported success and no errors/support/invalid-confidence findings. Findings retain explicit agent errors, and metadata identifies the agent.
+6. Evidence is usable if it is a nonblank string reference or a dictionary with nonblank `text`, `source` or `url`. Text verification uses dictionaries' `text`. Split summary/evidence at sentence boundaries/newlines, normalize case/whitespace/terminal punctuation, and require each summary statement to equal an evidence statement. Paraphrases are conservatively unverified, not proved false; substrings inside a negated statement do not count. Arbitrary data fields and source truth are not evaluated.
+7. Explicit citations must be lists/tuples of string or integer references matching evidence strings or `document_chunk_id`/`source`/`url` fields with the same type; booleans do not substitute for IDs. Blank summaries/evidence, unmatched statements and unmatched citations are findings. Source references alone retain the legacy structural support behavior, but cannot complete the coordinator's overall investigation.
+8. Confidence is optional. Missing values remain null. Values must be actual int/float, finite and within 0–1; bool/string/NaN/infinity/huge/out-of-range values become findings and null metric values. Equaliator averages only valid confidence from successful error-free results. It measures reported confidence, not calibrated correctness; no low-confidence threshold is invented.
+9. Equaliator blocks its preliminary completion on failed/error-bearing/invalid-confidence results, support findings or detected contradictions. Evidence quality is HIGH only when every result succeeds without errors and supplies usable evidence. Agreement compares normalized summary wording among successful error-free results: NO_RESULTS/INSUFFICIENT/HIGH/PARTIAL, or CONFLICT when the implemented polarity pattern matches.
+10. Contradiction checking is deliberately narrow: identical clauses using `is/are/was/were/has/have/had/can/will/does/do/did` with versus without `not`, excluding `not only`. Broader semantic, numeric and causal conflicts are not inferred. Conflicts are deterministic findings in result order; they do not prove which agent is correct.
+11. Overall status precedence: no results → incomplete; no successful error-free results → failed; mixed execution outcomes → partial; all evaluations passed plus Equaliator preliminary completion plus evidence text for every result → complete; otherwise incomplete. Thus the legacy Equaliator structural completion flag alone is not the overall status. Missing confidence alone is a reported limitation, not a failure. Empty KnowledgeAgent retrieval is incomplete despite its successful-execution flag.
+12. Synthesis attributes original passed summaries with evidence text, in order. It adds no new LLM-generated claims. Failed/unsupported summaries are omitted; any detected conflict withholds the combined conclusion. When no summary qualifies, report no supported conclusion. Limitations carry findings, absent confidence/text and the heuristic scope of the checks.
+13. This is a server-side coordinator, not an authentication endpoint. Existing callers authenticate KnowledgeAgent requests and supply trusted context. Bound read tools continue to recheck credentials, membership, identity, allowlist and permissions on each execution. The coordinator creates no grants, changes no tenant scope and never dispatches tool-call metadata, actions, additional agents or browser work.
+
+## Retained read-tool decisions and contracts — committed `a6d1b6e`
 
 1. Current credentials grant **knowledge reads only**. The first tools therefore inspect ready documents/chunks. Project/task/customer queries would need a separately trusted grant; no general business or action permission was inferred.
 2. Definitions extend the existing Tool contract; ReadOnlyToolRegistry extends the existing registry. Trusted declarations supply SELECT, parameter model, permission, tenant column and cursor field. Registration rejects general tools, non-SELECT definitions, unsupported permissions and overridden execution methods. Extension authors are trusted Python developers, not sandboxed plugins.
@@ -41,33 +57,34 @@ No existing test files, dependencies, models, migrations, HTTP routes, frontend 
 
 ## Exact verification results and commands
 
-Python: existing `.venv/bin/python` (3.14.4). Commands are from repository root unless specified. Existing tests were preserved; none skipped or suppressed. Baselines were run before implementation on clean `20008e6`.
+Python: existing `.venv/bin/python` (3.14.4). Commands are from repository root unless specified. Baselines ran on clean `a6d1b6e` before changes. Existing tests were not edited, skipped or suppressed.
 
 | Check | Command / method | Exact result |
 | --- | --- | --- |
-| Baseline AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 192 run; 191 passed; 1 failed |
-| Baseline Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 107 run; 107 passed |
-| Focused new AI | `.venv/bin/python -m unittest ai_engine.tests.test_read_only_tools` | 11 run; 11 passed |
-| Focused AI regression | `.venv/bin/python -m unittest ai_engine.tests.test_read_only_tools ai_engine.tests.test_agents ai_engine.tests.test_permission_engine ai_engine.tests.test_knowledge_agent ai_engine.tests.test_ai_engine ai_engine.tests.test_knowledge_flow ai_engine.tests.test_rag_service` | 65 run; 65 passed |
-| Focused PostgreSQL | `../.venv/bin/python manage.py test core.test_read_only_tools --noinput` from `backend/` | 12 run; 12 passed |
-| Full AI regression | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 203 run; 202 passed; same 1 failure |
-| Full Django regression | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 119 run; 119 passed |
+| Baseline AI | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 203 run; 202 passed; 1 failed |
+| Baseline Django | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 119 run; 119 passed |
+| Focused new AI | `.venv/bin/python -m unittest ai_engine.tests.test_coordination_quality` | 29 run; 29 passed |
+| Focused AI regression | `.venv/bin/python -m unittest ai_engine.tests.test_coordination_quality ai_engine.tests.test_multi_agent_coordinator ai_engine.tests.test_agent_supervisor ai_engine.tests.test_agent_graph ai_engine.tests.test_agent_evaluator ai_engine.tests.test_equaliator ai_engine.tests.test_evaluation_models ai_engine.tests.test_knowledge_agent ai_engine.tests.test_read_only_tools ai_engine.tests.test_permission_engine` | 103 run; 103 passed |
+| Focused PostgreSQL | `../.venv/bin/python manage.py test core.test_coordination_quality --noinput` from `backend/` | 7 run; 7 passed |
+| Final full AI regression | `.venv/bin/python -m unittest discover -s ai_engine/tests` | 232 run; 231 passed; same 1 failure |
+| Final full Django regression | `../.venv/bin/python manage.py test core --noinput` from `backend/` | 126 run; 126 passed |
 | Django checks | `.venv/bin/python backend/manage.py check` | 0 issues, 0 silenced |
 | Django migration drift | `.venv/bin/python backend/manage.py makemigrations --check --dry-run` | No changes detected |
 | Python compilation | `.venv/bin/python -m compileall -q ai_engine/app ai_engine/alembic backend/core backend/config` | Passed |
 | Offline Alembic | `.venv/bin/python -m alembic -c ai_engine/alembic.ini upgrade head --sql` | Both existing migrations generated successfully |
-| Live migration regression | Existing knowledge-flow lifecycle test within `test core`: temporary Django DB, Alembic upgrade/downgrade/orphan seed/upgrade/check | Passed; no new upgrade operations detected |
-| Ruff 0.16.9 | `check` on all 8 changed/new Python files; KnowledgeAgent HEAD compared with `git show HEAD:ai_engine/app/agents/knowledge.py` piped to `check --stdin-filename ai_engine/app/agents/knowledge.py -` | Same 1 pre-existing ISC004; **0 new diagnostics**. The other 7 files pass |
+| Live migration checks | Django temporary test DB plus Alembic; existing knowledge-flow downgrade/orphan seed/upgrade/drift regression within full Django suite | Passed; no new upgrade operations detected |
+| Changed-file lint | Ruff 0.16.9 `check` on the 7 Python files listed above; HEAD versions of 4 existing files checked via `git show HEAD:<path>` piped to Ruff `--stdin-filename <path> -` | Baseline: 1 Equaliator I001; final: 0 diagnostics. Import order corrected while editing; no suppressions |
+| Known untouched-file lint | Ruff `check --output-format json backend/core/models.py ai_engine/app/agents/knowledge.py` | 16 existing diagnostics: 14 RUF012, 1 PIE794, 1 ISC004; files unchanged |
 | Patch formatting | `git diff --check` | Passed |
 
-Lint binary: `/tmp/groot-knowledge-lint/bin/ruff` already available from the previous module. No dependencies were installed or changed. No Python static type checker configuration or installed mypy/pyright was found; no static type-check result is claimed. Frontend lint/build is unrelated to these changes.
+Ruff binary `/tmp/groot-knowledge-lint/bin/ruff` was already available; no dependencies were installed or changed. No configured/installed mypy or pyright was found, so no static type check is claimed. Frontend checks were not applicable.
 
-New PostgreSQL tests create their own engine **only against the temporary `test_` database selected by Django** and dispose it after testing. They verify both known membership roles, denied unknown roles, missing/bad/expired/revoked credentials, disabled users, deleted memberships, mismatched identities, same-user multiple-membership isolation, readiness, bounded cursors, Unicode truncation, unchanged application rows, read-only transaction reset, and rejection/rollback of an UPDATE CTE hidden inside a SELECT. Existing regression tests also cover the prior knowledge lifecycle, pgvector queries and migrations. No migrations were applied to the developer database.
+New PostgreSQL tests explicitly target only the Django-selected `test_` database, apply existing Django/Alembic migrations there, clean up AI tables and dispose the test engine. They exercise real KnowledgeAgent/RAG/pgvector plus registered readers using the unchanged guarded read registry. Only embedding/LLM providers are fake. Coverage includes preserved evidence/citations, excluded foreign data, denied agent/context permissions and identities, invalid/expired/revoked tokens, revocation between agents, empty foreign reads, rejected mutation and unchanged rows. No migrations were applied to the developer database.
 
 ## Pre-existing failures and visible diagnostics
 
 - `test_browser_tool.BrowserToolTests.test_extracts_information` expects `"page heading"` but receives `BrowserResult(action='extract_information', data={'query': 'page heading'})`. Identical baseline and final failure; browser remains a stub.
-- `ai_engine/app/agents/knowledge.py` has one existing Ruff ISC004 implicit-string-concatenation diagnostic. Confirmed with HEAD source using the same linter. No suppressions or rule changes. The 15 model diagnostics recorded by the previous module remain outside this module's changed-file lint scope; models were not touched.
+- Untouched lint issues were rechecked: KnowledgeAgent ISC004 implicit-string concatenation; models PIE794 duplicate field and 14 RUF012 mutable-class-list diagnostics. All 16 remain. Changed files have zero diagnostics; the Equaliator's previous import-order diagnostic was resolved while editing its imports. No rules or tests were suppressed.
 - SQLAlchemy declarative-base and installed Starlette/httpx deprecations remain visible. Malformed-PDF fixture messages are expected diagnostics, not failures.
 - No new regression failures were introduced.
 
@@ -82,10 +99,11 @@ New PostgreSQL tests create their own engine **only against the temporary `test_
 
 ## Remaining limitations and next module
 
-- Read tools are a server-side library, with no new endpoint or automatic invocation from `/rag`. Callers must bind a fresh registry using trusted context and credentials. Only knowledge records have grants; other agent/business tools remain pending.
-- Definitions are trusted code; read-only transactions are not a Python sandbox. The database contract is PostgreSQL-specific. Chunk text has a 4,000-character cap and no text-offset continuation. Separate pages have no snapshot guarantee during concurrent reprocessing.
-- Knowledge backend remains verified with plain-text fixtures and fake external providers; live Groq/Ollama/GitHub, semantic answer correctness, PDF-through-LLM execution, live Redis workers and production deployment were not tested. Frontend sign-in/knowledge requests, upload API and token-management UI remain absent.
+- Coordination is a server-side API with explicit selections. No HTTP investigation route, authentication extension, parallelism, retry planner, workflow persistence or automatic follow-up selection was added. Registered agents and context are trusted; state is shared and agents must leave it unchanged. Direct low-level KnowledgeAgent calls retain the existing caller-authentication responsibility.
+- Groundedness checks literal summary text and citation references only. Valid paraphrases may remain unverified. Evidence labels without text cannot complete an investigation; matching supplied text is not independent truth/source verification. Broader semantic/numerical contradiction detection is absent. Confidence is reported data, not calibrated probability. Overall status is stricter than the legacy Equaliator structural completion flag.
+- Returned tool-call metadata is preserved but never executed by coordination. Read-tool definitions remain trusted code; read-only transactions are not a Python sandbox. Their PostgreSQL contract, 4,000-character chunk cap and lack of pagination snapshot/text-offset continuation remain unchanged.
+- Live Groq/Ollama/GitHub, semantic answer correctness, PDF-through-LLM execution, live Redis workers and production deployment were not tested. Frontend sign-in/knowledge requests, upload API and token-management UI remain absent.
 - Lost dispatch/jobs need operator retry. Per-document locks span provider work. Context assembly has a nominal character budget; local hash embeddings are nonsemantic. Production configuration still needs hardening.
-- Coordination remains standalone/sequential; ResearchAgent packages state; DataAnalyst/Operations are placeholders. Equaliator has no contradiction implementation; actions/verification are scaffolds and audit is memory-only. No persistent conversations/workflows, CI, MongoDB or MCP was added.
+- ResearchAgent packages supplied state; DataAnalyst/Operations remain placeholders and their unsupported summaries do not complete investigations. Actions/verification are scaffolds; audit is memory-only. No persistent conversations/workflows, CI, MongoDB or MCP was added.
 
-**NEXT: Connect coordination and quality** — explicit selection, evidence collection, Equaliator and synthesis, with supported contradiction/groundedness checks before claiming them. Preserve the completed knowledge and read-tool boundaries. See [Task.md](Task.md).
+**NEXT: Connect controlled actions** — trusted risk classification, durable approvals/audit, actual execution and independent verification, with approval-policy/executor alignment. Preserve the completed knowledge, read-tool and coordination boundaries. Browser work remains a later module. See [Task.md](Task.md).

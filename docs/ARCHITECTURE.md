@@ -1,6 +1,6 @@
 # GROOT — Current architecture
 
-Verified: 2026-09-28. Starting HEAD was clean at `20008e6 feat: complete tenant-scoped knowledge flow`. The knowledge backend and setup modules are committed. Trusted Read-Only Tools is implemented and verified in the working tree; no commit or push was made.
+Verified: 2026-09-28. Starting HEAD was clean at `a6d1b6e feat: add trusted read-only tools`. Setup, the knowledge backend and trusted read-only tools are committed. Coordination and Quality is implemented and verified in the working tree; no commit or push was made.
 
 ## Services and ownership
 
@@ -52,6 +52,36 @@ Each execution opens a dedicated session from the existing `SessionLocal`, sets 
 
 Query-only SQLAlchemy table expressions read Django-owned tables without entering `Base.metadata`; no models, migrations, engines or dependencies changed. PostgreSQL enforces the read-only transaction even for a modifying CTE embedded in an otherwise valid SELECT (verified SQLSTATE `25006`). Connections return to normal transaction mode after rollback.
 
+## Coordinated investigation and quality
+
+```mermaid
+flowchart LR
+    CALLER[Trusted caller: selection and original context] --> COORD[MultiAgentCoordinator]
+    COORD --> SUP[Existing supervisor and registry]
+    SUP --> GRAPH[Existing AgentGraph for each selected agent]
+    GRAPH --> RESULTS[Ordered AgentResult tuple]
+    RESULTS --> EVAL[AgentEvaluator per result]
+    RESULTS --> EQ[Equaliator across results]
+    EVAL --> REPORT[CoordinationResult: status, attributed summary, evidence, citations, limitations]
+    EQ --> REPORT
+```
+
+Execution stays sequential. The coordinator does not replace the task with earlier agents' summaries or inject results into context state. The same original AgentContext object reaches each agent. Context state may contain a live Session; registered agents are trusted code and must not mutate the shared context.
+
+`AgentSupervisor.execute` has optional `capture_failures=False`, preserving direct callers' existing exception behavior. The coordinator opts in to capture failures so missing agents, raised Exceptions and invalid result identities become failed AgentResults at their selected positions; subsequent agents still run. Raw exception messages are omitted because they can contain credentials or SQL inputs. Process-control BaseExceptions are not intercepted.
+
+CoordinationResult is extended, rather than introducing parallel agent/evaluation models. Its original `selection` and `results` remain. Added fields are ordered `evaluations`, aggregate `quality`, overall `status`, `summary`, flattened `evidence`, flattened `citations`, and `limitations`. Original AgentResults remain intact, including failed/unsupported evidence and metadata; flattened collections retain order and duplicates. Per-result provenance remains in `results`.
+
+`evaluation/support.py` provides shared deterministic support checks. AgentEvaluator keeps success/confidence/evidence/errors metrics and adds `groundedness` (1 for verified literal text, 0 for support findings, null when text checking is unavailable or the result failed). Findings include result errors, missing/blank evidence/summary, invalid confidence and unmatched text/citations. A passed evaluation requires success and no findings. Missing confidence stays null; invalid finite/range/type values produce findings and null metric values.
+
+Equaliator reuses its existing result/assessment models. Unsupported results, errors, invalid confidence and detected conflicts block its preliminary completion flag. Evidence quality requires usable evidence from every successful error-free agent to be HIGH. Reported confidence averages valid values only from successful error-free results. Agreement compares normalized successful error-free summary wording, with CONFLICT for detected opposite-polarity clauses. Support checks cover summary text and explicit citation references, not arbitrary data fields or independent source truth.
+
+The coordinator applies a stricter completion gate than Equaliator's legacy structural flag: every result must also pass AgentEvaluator and contain evidence text. Thus a source-label-only result can retain legacy structural support while the overall investigation remains incomplete. Status precedence is empty → incomplete; no successful error-free results → failed; mixed execution outcomes → partial; all checks plus text → complete; otherwise incomplete. Missing confidence alone does not block completion, and no confidence threshold is invented.
+
+Synthesis is deterministic attribution of checked original summaries. Failed or unsupported summaries are omitted; any detected contradiction withholds combined conclusions. Evidence and findings remain available for review. Neither quality scores nor `additional_agent_needed` dispatch tools, actions or more agents.
+
+This remains a server-side API. Existing callers authenticate before supplying KnowledgeAgent context; bound read tools independently recheck their credentials and policy on every execution. The coordinator does not grant permissions or add an authentication endpoint. `/rag`, `/ai`, data ownership, sessions, models and migrations retain their existing contracts. Real PostgreSQL integration covers KnowledgeAgent plus a registered agent using the existing read-only tool registry, tenant isolation and revocation between reads.
+
 ## Document processing and embeddings
 
 1. Existing `process_document` runs the extraction/normalization/chunk pipeline inside a Django transaction with a document-row lock.
@@ -80,8 +110,8 @@ Similarity search retains matching model/dimensions and cosine ordering. A param
 
 ## Other components and remaining boundaries
 
-GitHub is still the only concrete connector, with organization/source/external-ID event idempotency. General coordination is sequential and explicitly selected; LangGraph wraps a single node without persistence. ResearchAgent packages state; DataAnalyst/Operations are placeholders. Equaliator is heuristic, contradiction detection is empty, and action execution/verification and audit remain scaffolds or memory-only.
+GitHub is still the only concrete connector, with organization/source/external-ID event idempotency. Coordination remains explicitly selected and sequential; LangGraph wraps a single node without persistence. Quality assessment is now connected with the deterministic limits above. ResearchAgent packages state; DataAnalyst/Operations are placeholders. Action execution/verification and audit remain scaffolds or memory-only.
 
 The root dotenv/process-environment precedence, URL escaping, dependency pins and preflight from the setup module remain. The shared embedding provider factory now serves both query and worker paths and honors `OLLAMA_BASE_URL`. Local hash vectors remain nonsemantic. Production secret/host settings still need hardening. No conversation store, durable workflow, MongoDB, MCP, CI, or container deployment was added.
 
-Verification: new AI tools 11/11, focused AI selection 65/65, new PostgreSQL tool tests 12/12, full AI 202/203 (same baseline browser failure), full Django 119/119. Django/Alembic drift, offline migration SQL, compilation and diff checks passed. Ruff reports one baseline KnowledgeAgent diagnostic among changed files and zero new diagnostics. See [MEMORY.md](MEMORY.md) for commands and exact limits.
+Verification: 29 new AI tests; focused AI selection 103/103; new PostgreSQL coordination tests 7/7; full AI 231/232 (same baseline browser failure); full Django 126/126. Django/Alembic drift, offline migration SQL, compilation and diff checks passed. Changed-file lint reports zero diagnostics. See [MEMORY.md](MEMORY.md) for commands, baseline comparison and known untouched-file diagnostics.
